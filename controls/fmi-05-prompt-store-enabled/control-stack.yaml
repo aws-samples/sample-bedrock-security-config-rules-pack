@@ -1,0 +1,165 @@
+################################################################################
+# Bedrock Security Control - FMI-05 Prompt Store Enabled
+#
+# This check-only stack contains resources for the FMI-05 control:
+# - Check Lambda function and IAM role
+# - Config rule
+# Note: This control is check-only and has no remediation functionality
+################################################################################
+
+Parameters:
+  # Global parameters from SSM Parameter Store
+
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: Name of the S3 bucket containing Lambda code
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: Prefix for Lambda code files in S3 bucket
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: Frequency at which the Config Rules will run
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    
+  # VPC Configuration parameters (optional)
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: VPC ID for Lambda functions (use 'null' to disable VPC)
+    Default: /bedrock-configrules/global/VpcId
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: List of private subnet IDs for Lambda functions (use 'null' to disable VPC)
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Description: List of Security Group IDs for Lambda functions (use 'null' to disable VPC)
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    
+  # Control-specific parameters
+  RequireVersioning:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-05/RequireVersioning
+    Description: Whether prompt versioning must be enabled
+    
+  MinPromptCount:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-05/MinPromptCount
+    Description: Minimum number of prompts required in the account
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  PromptStoreEnabledFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "PromptStoreEnabledFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:ListPrompts'
+                  - 'bedrock:GetPrompt'
+                Resource: '*'
+        - PolicyName: ConfigRulesAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'config:PutEvaluations'
+                Resource: "*"
+
+  PromptStoreEnabledFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi05-PromptStoreEnabledCheck"
+      Handler: lambda-function.handler
+      Role: !GetAtt PromptStoreEnabledFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 30
+      ReservedConcurrentExecutions: 10
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-05-prompt-store-enabled-check.zip"
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+
+
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI05Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PromptStoreEnabledFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI05Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI05Permission
+    Properties:
+      ConfigRuleName: !Sub "fmi-05-prompt-store-enabled"
+      Description: "Checks if Bedrock prompt store is properly configured - Control ID: FMI-05"
+      InputParameters:
+        requireVersioning: !Ref RequireVersioning
+        minPromptCount: !Ref MinPromptCount
+      Scope:
+        ComplianceResourceTypes: [] # Empty list for account-level evaluation
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+            MessageType: ScheduledNotification
+        SourceIdentifier: !GetAtt PromptStoreEnabledFunction.Arn
+
+
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Prompt Store Enabled Check Lambda Function
+    Value: !GetAtt PromptStoreEnabledFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Prompt Store Enabled
+    Value: !Ref FMI05Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

@@ -1,0 +1,429 @@
+################################################################################
+# Bedrock Security Control - FMI-12 Guardrail Content Filters
+#
+# This unified stack contains all resources for the FMI-12 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Bedrock Security Control - FMI-12 Guardrail Content Filters'
+
+Parameters:
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: "S3 bucket name for CloudFormation templates"
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: "Number of retry attempts for remediation"
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: "Prefix for Lambda code files in S3 bucket"
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: "VPC ID for Lambda functions (leave empty to disable VPC)"
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: "List of Security Group IDs for Lambda functions (leave empty to disable VPC)"
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: "Frequency for Config rule evaluations"
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: "Seconds to wait between remediation retries"
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: "List of private subnet IDs for Lambda functions (leave empty to disable VPC)"
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: "Enable automatic remediation for Config rules"
+
+  # Control-specific parameters
+  GuardrailName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-12/GuardrailName
+    Description: 'Optional specific guardrail name to validate'
+  ContentFilters:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-12/ContentFilters
+    Description: 'Comma-separated list of content filter types to validate'
+  InputStrength:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-12/InputStrength
+    Description: 'Minimum input strength for content filters'
+  OutputStrength:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-12/OutputStrength
+    Description: 'Minimum output strength for content filters'
+  InputAction:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-12/InputAction
+    Description: 'Input action to validate (BLOCK or NONE)'
+  OutputAction:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-12/OutputAction
+    Description: 'Output action to validate (BLOCK or NONE)'
+  RequiredTags:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-12/RequiredTags
+    Description: 'Optional required tags in key=value,key2=value2 format'
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-12-guardrail-content-filters-check-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockGuardrailContentFiltersCheckPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListGuardrails
+                  - bedrock:GetGuardrail
+                  - bedrock:ListTagsForResource
+                  - bedrock:GetGuardrailVersion
+                Resource: '*'
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi12-GuardrailContentFiltersCheck"
+      Description: "FMI-12: Checks if Bedrock guardrails have proper content filter configuration"
+      Runtime: python3.9
+      Handler: lambda-function.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 256
+      ReservedConcurrentExecutions: 10
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-12-guardrail-content-filters-check.zip"
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  RemediationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-12-guardrail-content-filters-remed-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: BedrockGuardrailContentFiltersRemediationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListGuardrails
+                  - bedrock:GetGuardrail
+                  - bedrock:CreateGuardrail
+                  - bedrock:UpdateGuardrail
+                  - bedrock:ListTagsForResource
+                  - bedrock:TagResource
+                  - bedrock:UntagResource
+                Resource: '*'
+
+  RemediationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi12-GuardrailContentFiltersRemediation"
+      Description: "FMI-12: Creates or updates Bedrock guardrails with proper content filter configuration"
+      Runtime: python3.9
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt RemediationLambdaExecutionRole.Arn
+      Timeout: 900
+      MemorySize: 512
+      ReservedConcurrentExecutions: 5
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-12-guardrail-content-filters-remediation.zip"
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  AutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-12-guardrail-content-filters-auto-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke remediation Lambda"
+      Policies:
+        - PolicyName: AutomationExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt RemediationLambdaFunction.Arn
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  RemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "fmi-12-bedrock-guardrail-content-filters-remediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: 'FMI-12: Remediation document for creating/updating Bedrock guardrail content filters'
+        assumeRole: !GetAtt AutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            description: The ARN of the role that allows Automation to perform the actions on your behalf
+            default: !GetAtt AutomationRole.Arn
+          ResourceId:
+            type: String
+            description: Account ID for account-level remediation
+          GuardrailName:
+            type: String
+            description: Optional specific guardrail name
+            default: !Ref GuardrailName
+          ContentFilters:
+            type: String
+            description: Comma-separated list of content filter types (REQUIRED for remediation)
+            default: !Ref ContentFilters
+          InputStrength:
+            type: String
+            description: Input strength for content filters
+            default: !Ref InputStrength
+          OutputStrength:
+            type: String
+            description: Output strength for content filters
+            default: !Ref OutputStrength
+          InputAction:
+            type: String
+            description: Input action to configure
+            default: !Ref InputAction
+          OutputAction:
+            type: String
+            description: Output action to configure
+            default: !Ref OutputAction
+          RequiredTags:
+            type: String
+            description: Required tags in key=value format
+            default: !Ref RequiredTags
+        mainSteps:
+          - name: InvokeLambdaFunction
+            action: 'aws:invokeLambdaFunction'
+            description: Invoke Lambda function to create/update guardrail content filters
+            timeoutSeconds: 900
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref RemediationLambdaFunction
+              Payload: !Sub |
+                {
+                  "configRuleParameters": {
+                    "GuardrailName": "{{GuardrailName}}",
+                    "ContentFilters": "{{ContentFilters}}",
+                    "InputStrength": "{{InputStrength}}",
+                    "OutputStrength": "{{OutputStrength}}",
+                    "InputAction": "{{InputAction}}",
+                    "OutputAction": "{{OutputAction}}",
+                    "RequiredTags": "{{RequiredTags}}"
+                  },
+                  "accountId": "${AWS::AccountId}"
+                }
+            outputs:
+              - Name: Response
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  GuardrailContentFiltersPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  GuardrailContentFiltersCheck:
+    Type: AWS::Config::ConfigRule
+    DependsOn: GuardrailContentFiltersPermission
+    Properties:
+      ConfigRuleName: !Sub "fmi-12-guardrail-content-filters"
+      Description: "Checks if Bedrock guardrails have proper content filter configuration at the account level. - Control ID: FMI-12"
+      MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+      InputParameters: !Sub |
+        {
+          "GuardrailName": "${GuardrailName}",
+          "ContentFilters": "${ContentFilters}",
+          "InputStrength": "${InputStrength}",
+          "OutputStrength": "${OutputStrength}",
+          "InputAction": "${InputAction}",
+          "OutputAction": "${OutputAction}",
+          "RequiredTags": "${RequiredTags}"
+        }
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ScheduledNotification
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+        SourceIdentifier: !GetAtt LambdaFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  GuardrailContentFiltersRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref GuardrailContentFiltersCheck
+      TargetId: !Ref RemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt AutomationRole.Arn
+        ResourceId:
+          ResourceValue:
+            Value: RESOURCE_ID
+        GuardrailName:
+          StaticValue:
+            Values:
+              - !Ref GuardrailName
+        ContentFilters:
+          StaticValue:
+            Values:
+              - !Ref ContentFilters
+        InputStrength:
+          StaticValue:
+            Values:
+              - !Ref InputStrength
+        OutputStrength:
+          StaticValue:
+            Values:
+              - !Ref OutputStrength
+        InputAction:
+          StaticValue:
+            Values:
+              - !Ref InputAction
+        OutputAction:
+          StaticValue:
+            Values:
+              - !Ref OutputAction
+        RequiredTags:
+          StaticValue:
+            Values:
+              - !Ref RequiredTags
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Guardrail Content Filters Check Lambda Function
+    Value: !GetAtt LambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock Guardrail Content Filters Remediation Lambda Function
+    Value: !GetAtt RemediationLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Guardrail Content Filters Remediation
+    Value: !Ref RemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for Guardrail Content Filters
+    Value: !GetAtt AutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Guardrail Content Filters
+    Value: !Ref GuardrailContentFiltersCheck
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

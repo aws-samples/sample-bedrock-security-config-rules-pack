@@ -1,0 +1,487 @@
+################################################################################
+# Bedrock Security Control - FMI-18 Guardrail CloudWatch Alarms
+#
+# This unified stack contains all resources for the FMI-18 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+# - SNS topic for alarm notifications
+################################################################################
+
+Parameters:
+  GuardrailChangeNotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/GuardrailChangeNotificationTopicArn
+    Description: >
+      SNS topic ARN for receiving guardrail change notifications (leave empty to create new topic). When any guardrail change is detected,
+      Format: arn:aws:sns:region:account-id:topic-name
+      Example: arn:aws:sns:us-east-1:123456789012:bedrock-security-notifications
+    
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: "S3 bucket name for CloudFormation templates"
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: "Number of retry attempts for remediation"
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: "Prefix for Lambda code files in S3 bucket"
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: "VPC ID for Lambda functions (leave empty to disable VPC)"
+    
+  
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: "List of Security Group IDs for Lambda functions (leave empty to disable VPC)"
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: "Frequency for Config rule evaluations"
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: "General notification topic ARN"
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: "Seconds to wait between remediation retries"
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: "List of private subnet IDs for Lambda functions (leave empty to disable VPC)"
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: "Enable automatic remediation for Config rules"
+    
+
+    
+  KmsKeyId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-18/KmsKeyId
+    Description: "KMS key ID for SNS topic encryption (leave empty to disable encryption)"
+    
+  AlarmThreshold:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-18/AlarmThreshold
+    Description: "Threshold value for CloudWatch alarms"
+    
+  MetricNamespace:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-18/MetricNamespace
+    Description: "CloudWatch metric namespace"
+    
+  AlarmNamePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-18/AlarmNamePrefix
+    Description: "Prefix for CloudWatch alarm names"
+    
+
+    
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+  UseKMSEncryption: !Not [!Equals [!Ref KmsKeyId, "null"]]
+  CreateNewSNSTopic: !Equals [!Ref GuardrailChangeNotificationTopicArn, "null"]
+
+Resources:
+  # =========================================================================
+  # SNS Topic for Alarm Notifications (created only if not provided)
+  # =========================================================================
+  GuardrailAlarmsTopic:
+    Type: AWS::SNS::Topic
+    Condition: CreateNewSNSTopic
+    Properties:
+      TopicName: !Sub "fmi-18-guardrail-alarms-topic"
+      DisplayName: "Bedrock Guardrail CloudWatch Alarms Notifications"
+      KmsMasterKeyId: !If
+        - UseKMSEncryption
+        - !Ref KmsKeyId
+        - !Ref AWS::NoValue
+      
+  GuardrailAlarmsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Condition: CreateNewSNSTopic
+    Properties:
+      Topics:
+        - !Ref GuardrailAlarmsTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudwatch.amazonaws.com
+            Action:
+              - sns:Publish
+            Resource: !Ref GuardrailAlarmsTopic
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
+
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-18-guardrail-cw-alarms-check-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockGuardrailCloudWatchAlarmsCheckPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:GetModelInvocationLoggingConfiguration
+                  - bedrock:GetGuardrail
+                  - bedrock:ListGuardrails
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:ListMetrics
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:DescribeMetricFilters
+                  - logs:DescribeLogGroups
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi18-GuardrailCloudwatchAlarmsCheck"
+      Description: "FMI-18: Checks if CloudWatch alarms are configured for Bedrock guardrail interventions using simplified metric filter pattern"
+      Runtime: python3.9
+      Handler: lambda-function.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 256
+      ReservedConcurrentExecutions: 10
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-18-guardrail-cloudwatch-alarms-check.zip"
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  RemediationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-18-guardrail-cw-alarms-remed-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: BedrockGuardrailCloudWatchAlarmsRemediationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:GetModelInvocationLoggingConfiguration
+                  - bedrock:GetGuardrail
+                  - bedrock:ListGuardrails
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:DeleteAlarms
+                  - cloudwatch:ListMetrics
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:PutMetricFilter
+                  - logs:DescribeMetricFilters
+                  - logs:DeleteMetricFilter
+                  - logs:DescribeLogGroups
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - sns:GetTopicAttributes
+                  - sns:Publish
+                Resource: 
+                  - !If
+                    - CreateNewSNSTopic
+                    - !Ref GuardrailAlarmsTopic
+                    - !Ref GuardrailChangeNotificationTopicArn
+
+
+  RemediationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi18-GuardrailCloudwatchAlarmsRemediation"
+      Description: "FMI-18: Creates CloudWatch alarms for Bedrock guardrail interventions using simplified approach"
+      Runtime: python3.9
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt RemediationLambdaExecutionRole.Arn
+      Timeout: 900
+      MemorySize: 512
+      ReservedConcurrentExecutions: 5
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-18-guardrail-cloudwatch-alarms-remediation.zip"
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  AutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-18-guardrail-cw-alarms-auto-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke remediation Lambda"
+      Policies:
+        - PolicyName: AutomationExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt RemediationLambdaFunction.Arn
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  RemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "fmi-18-bedrock-guardrail-cloudwatch-alarms-remediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: 'FMI-18: Remediation document for creating CloudWatch alarms for Bedrock guardrail interventions'
+        assumeRole: !GetAtt AutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+                type: String
+                description: The ARN of the role that allows Automation to perform the actions on your behalf
+                default: !GetAtt AutomationRole.Arn
+          ConfigRuleName:
+                type: String
+                description: Name of the Config rule that triggered this remediation
+          ResourceId:
+                type: String
+                description: Account ID for account-level remediation
+
+          AlarmThreshold:
+                type: String
+                description: Threshold value for CloudWatch alarms. Alarms trigger when metric value is greater than this threshold.
+                default: !Ref AlarmThreshold
+          MetricNamespace:
+                type: String
+                description: CloudWatch metric namespace
+                default: !Ref MetricNamespace
+          AlarmNamePrefix:
+                type: String
+                description: Prefix for CloudWatch alarm names
+                default: !Ref AlarmNamePrefix
+          SnsTopicArn:
+                type: String
+                description: SNS topic ARN for alarm notifications
+                default: !If
+                  - CreateNewSNSTopic
+                  - !Ref GuardrailAlarmsTopic
+                  - !Ref GuardrailChangeNotificationTopicArn
+
+
+        mainSteps:
+          - name: InvokeLambdaFunction
+            action: 'aws:invokeLambdaFunction'
+            description: Invoke Lambda function to create CloudWatch alarms for guardrail monitoring
+            timeoutSeconds: 900
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref RemediationLambdaFunction
+              Payload: !Sub |
+                {
+                  "ruleParameters": "{\"accountId\":\"{{ResourceId}}\",\"alarmNamePrefix\":\"{{AlarmNamePrefix}}\",\"metricNamespace\":\"{{MetricNamespace}}\",\"alarmThreshold\":\"{{AlarmThreshold}}\",\"snsTopicArn\":\"{{SnsTopicArn}}\"}",
+                  "accountId": "${AWS::AccountId}"
+                }
+            outputs:
+              - Name: Response
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI14Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI14Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI14Permission
+    Properties:
+      ConfigRuleName: !Sub "fmi-18-guardrail-cloudwatch-alarms"
+      Description: "Checks if CloudWatch alarms are configured for Bedrock guardrail interventions at the account level. - Control ID: FMI-18"
+      MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+      InputParameters: !Sub |
+        {
+          "alarmThreshold": "${AlarmThreshold}"
+        }
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ScheduledNotification
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+        SourceIdentifier: !GetAtt LambdaFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  FMI14Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref FMI14Check
+      TargetId: !Ref RemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt AutomationRole.Arn
+        ConfigRuleName:
+          StaticValue:
+            Values:
+              - !Ref FMI14Check
+        ResourceId:
+          ResourceValue:
+            Value: RESOURCE_ID
+        AlarmThreshold:
+          StaticValue:
+            Values:
+              - !Ref AlarmThreshold
+        MetricNamespace:
+          StaticValue:
+            Values:
+              - !Ref MetricNamespace
+        AlarmNamePrefix:
+          StaticValue:
+            Values:
+              - !Ref AlarmNamePrefix
+
+
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Guardrail CloudWatch Alarms Check Lambda Function
+    Value: !GetAtt LambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock Guardrail CloudWatch Alarms Remediation Lambda Function
+    Value: !GetAtt RemediationLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Guardrail CloudWatch Alarms Remediation
+    Value: !Ref RemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for Guardrail CloudWatch Alarms
+    Value: !GetAtt AutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Guardrail CloudWatch Alarms
+    Value: !Ref FMI14Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'
+      
+  SNSTopicArn:
+    Description: ARN of the SNS topic for guardrail alarm notifications
+    Value: !If
+      - CreateNewSNSTopic
+      - !Ref GuardrailAlarmsTopic
+      - !Ref GuardrailChangeNotificationTopicArn
+    Export:
+      Name: !Sub '${AWS::StackName}-SNSTopicArn'

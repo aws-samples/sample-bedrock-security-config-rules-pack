@@ -1,0 +1,475 @@
+################################################################################
+# Bedrock Security Control - FMI-19 Guardrail Change Monitoring
+#
+# This unified stack contains all resources for the FMI-19 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+#
+# ARCHITECTURE NOTE: This control uses a SIMPLE ACCOUNT-LEVEL approach:
+# - Single EventBridge rule monitors ALL guardrail changes (not per-guardrail)
+# - EventBridge rule sends events directly to SNS topic for immediate alerts
+# - No complex pipeline: EventBridge → SNS (2 components only)
+# - Account-level Config evaluation checks for the monitoring infrastructure
+################################################################################
+
+Parameters:
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation retries
+    
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: S3 bucket name for CloudFormation templates
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (leave empty to disable VPC)
+    
+  TargetOuId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TargetOuId
+    Description: Organization Unit ID where the SCP should be applied
+    
+  GuardrailChangeNotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-19/GuardrailChangeNotificationTopicArn
+    Description: SNS topic ARN for receiving guardrail change notifications (leave empty to create new topic)
+    
+  EventBridgeRuleName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-19/EventBridgeRuleName
+    Description: EventBridge rule name for guardrail change monitoring
+    
+  KmsKeyId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-19/KmsKeyId
+    Description: KMS key ID for SNS topic encryption (leave empty to disable encryption)
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for Config rules
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Number of retry attempts for remediation
+    
+
+  EventBridgeRuleState:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-19/EventBridgeRuleState
+    Description: State of the EventBridge rule for guardrail change monitoring
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+  UseKMSEncryption: !Not [!Equals [!Ref KmsKeyId, "null"]]
+  CreateNewSNSTopic: !Equals [!Ref GuardrailChangeNotificationTopicArn, "null"]
+
+Resources:
+  # =========================================================================
+  # SNS Topic for Guardrail Change Notifications (created only if not provided)
+  # =========================================================================
+  GuardrailChangeNotificationTopic:
+    Type: AWS::SNS::Topic
+    Condition: CreateNewSNSTopic
+    Properties:
+      TopicName: !Sub "fmi-19-guardrail-change-notifications"
+      DisplayName: "Bedrock Guardrail Change Notifications"
+      KmsMasterKeyId: !If
+        - UseKMSEncryption
+        - !Ref KmsKeyId
+        - !Ref AWS::NoValue
+      
+  GuardrailChangeNotificationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Condition: CreateNewSNSTopic
+    Properties:
+      Topics:
+        - !Ref GuardrailChangeNotificationTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action:
+              - sns:Publish
+            Resource: !Ref GuardrailChangeNotificationTopic
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
+
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  GuardrailChangeMonitoringCheckRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-19-guardrail-change-monitoring-check-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: GuardrailChangeMonitoringCheckPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - events:DescribeRule
+                  - events:ListTargetsByRule
+                  - events:ListRules
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - sns:GetTopicAttributes
+                Resource: '*'
+
+  GuardrailChangeMonitoringCheckFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi19-GuardrailChangeMonitoringCheck"
+      Description: "FMI-19: Checks if EventBridge rules exist to monitor guardrail configuration changes"
+      Runtime: python3.9
+      Handler: lambda-function.handler
+      Role: !GetAtt GuardrailChangeMonitoringCheckRole.Arn
+      Timeout: 300
+      MemorySize: 256
+      ReservedConcurrentExecutions: 10
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-19-guardrail-change-monitoring-check.zip"
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  GuardrailChangeMonitoringRemediationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-19-guardrail-change-monitoring-remed-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: GuardrailChangeMonitoringRemediationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - events:PutRule
+                  - events:PutTargets
+                  - events:DescribeRule
+                  - events:ListTargetsByRule
+                  - events:EnableRule
+                  - events:DisableRule
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - sns:CreateTopic
+                  - sns:GetTopicAttributes
+                  - sns:SetTopicAttributes
+                  - sns:Publish
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'iam:PassedToService': 'events.amazonaws.com'
+
+  GuardrailChangeMonitoringRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi19-GuardrailChangeMonitoringRemediation"
+      Description: "FMI-19: Creates EventBridge rules and CloudWatch alarms for guardrail change monitoring"
+      Runtime: python3.9
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt GuardrailChangeMonitoringRemediationRole.Arn
+      Timeout: 900
+      MemorySize: 512
+      ReservedConcurrentExecutions: 5
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-19-guardrail-change-monitoring-remediation.zip"
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  GuardrailChangeMonitoringAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-19-guardrail-change-monitoring-auto-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke guardrail change monitoring remediation Lambda"
+      Policies:
+        - PolicyName: AutomationExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt GuardrailChangeMonitoringRemediationFunction.Arn
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  GuardrailChangeMonitoringRemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "fmi-19-bedrock-guardrail-change-monitoring-remediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: 'FMI-19: Remediation document for creating simple EventBridge → SNS monitoring for guardrail changes'
+        assumeRole: !GetAtt GuardrailChangeMonitoringAutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+                type: String
+                description: The ARN of the role that allows Automation to perform the actions on your behalf
+                default: !GetAtt GuardrailChangeMonitoringAutomationRole.Arn
+          ConfigRuleName:
+                type: String
+                description: Name of the Config rule that triggered this remediation
+          ResourceId:
+                type: String
+                description: Resource ID of the non-compliant resource
+          GuardrailChangeNotificationTopicArn:
+                type: String
+                description: SNS topic ARN for guardrail change notifications
+                default: !If
+                  - CreateNewSNSTopic
+                  - !Ref GuardrailChangeNotificationTopic
+                  - !Ref GuardrailChangeNotificationTopicArn
+          EventBridgeRuleName:
+                type: String
+                description: EventBridge rule name for guardrail change monitoring
+                default: !Ref EventBridgeRuleName
+          EventBridgeRuleState:
+                type: String
+                description: State of EventBridge rule for guardrail change monitoring
+                default: !Ref EventBridgeRuleState
+          KmsKeyId:
+                type: String
+                description: KMS key ID for SNS topic encryption
+                default: !Ref KmsKeyId
+        mainSteps:
+          - name: InvokeLambdaFunction
+            action: 'aws:invokeLambdaFunction'
+            description: Invoke Lambda function to create simple EventBridge → SNS monitoring for guardrail changes
+            timeoutSeconds: 900
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref GuardrailChangeMonitoringRemediationFunction
+              Payload: !Sub |
+                {
+                  "ruleParameters": "{\"resourceId\":\"{{ResourceId}}\",\"guardrailChangeNotificationTopicArn\":\"{{GuardrailChangeNotificationTopicArn}}\",\"eventBridgeRuleName\":\"{{EventBridgeRuleName}}\",\"eventBridgeRuleState\":\"{{EventBridgeRuleState}}\",\"kmsKeyId\":\"{{KmsKeyId}}\"}",
+                  "accountId": "${AWS::AccountId}"
+                }
+            outputs:
+              - Name: Response
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI15Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GuardrailChangeMonitoringCheckFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI15Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI15Permission
+    Properties:
+      ConfigRuleName: !Sub "fmi-19-guardrail-change-monitoring"
+      Description: "Checks if simple EventBridge → SNS monitoring exists for immediate guardrail change alerts - Control ID: FMI-19"
+      # No Scope defined - this makes it an account-level rule that evaluates once per account
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ScheduledNotification
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+        SourceIdentifier: !GetAtt GuardrailChangeMonitoringCheckFunction.Arn
+      InputParameters: !Sub 
+        - |
+          {
+            "guardrailChangeNotificationTopicArn": "${TopicArn}",
+            "eventBridgeRuleName": "${EventBridgeRuleName}",
+            "eventBridgeRuleState": "${EventBridgeRuleState}"
+          }
+        - TopicArn: !If
+            - CreateNewSNSTopic
+            - !Ref GuardrailChangeNotificationTopic
+            - !Ref GuardrailChangeNotificationTopicArn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  FMI15Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref FMI15Check
+      TargetId: !Ref GuardrailChangeMonitoringRemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt GuardrailChangeMonitoringAutomationRole.Arn
+        ConfigRuleName:
+          StaticValue:
+            Values:
+              - !Ref FMI15Check
+        ResourceId:
+          ResourceValue:
+            Value: RESOURCE_ID
+        GuardrailChangeNotificationTopicArn:
+          StaticValue:
+            Values:
+              - !If
+                - CreateNewSNSTopic
+                - !Ref GuardrailChangeNotificationTopic
+                - !Ref GuardrailChangeNotificationTopicArn
+        EventBridgeRuleName:
+          StaticValue:
+            Values:
+              - !Ref EventBridgeRuleName
+        EventBridgeRuleState:
+          StaticValue:
+            Values:
+              - !Ref EventBridgeRuleState
+        KmsKeyId:
+          StaticValue:
+            Values:
+              - !Ref KmsKeyId
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Guardrail Change Monitoring Check Lambda Function
+    Value: !GetAtt GuardrailChangeMonitoringCheckFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock Guardrail Change Monitoring Remediation Lambda Function
+    Value: !GetAtt GuardrailChangeMonitoringRemediationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Guardrail Change Monitoring Remediation
+    Value: !Ref GuardrailChangeMonitoringRemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for Guardrail Change Monitoring
+    Value: !GetAtt GuardrailChangeMonitoringAutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Guardrail Change Monitoring
+    Value: !Ref FMI15Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'
+      
+  SNSTopicArn:
+    Description: ARN of the SNS topic for guardrail change notifications
+    Value: !If
+      - CreateNewSNSTopic
+      - !Ref GuardrailChangeNotificationTopic
+      - !Ref GuardrailChangeNotificationTopicArn
+    Export:
+      Name: !Sub '${AWS::StackName}-SNSTopicArn'

@@ -1,0 +1,377 @@
+################################################################################
+# Bedrock Security Config Rules - Main Template
+#
+# This CloudFormation template creates both Lambda functions and a Config Rules Pack
+# for implementing security checks for Amazon Bedrock using nested stacks
+################################################################################
+
+Parameters:
+
+
+  # =========================================================================
+  # Control Selection Parameters (read from SSM Parameter Store)
+  # =========================================================================
+
+  DeployFMI03:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI03
+    Description: "Deploy FMI-03 Tag-Based Access IAM control"
+    
+  DeployFMI01:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI01
+    Description: "Deploy FMI-01 IAM Least Privilege control"
+    
+    
+  DeployFMI04:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI04
+    Description: "Deploy FMI-04 Model Invocation Logging control"
+    
+  DeployFMI05:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI05
+    Description: "Deploy FMI-05 Prompt Store Enabled control"
+    
+  DeployFMI06:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI06
+    Description: "Deploy FMI-06 Model Logs KMS control"
+    
+  DeployFMI07:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI07
+    Description: "Deploy FMI-07 Knowledge Bases KMS control"
+    
+  DeployFMI08:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI08
+    Description: "Deploy FMI-08 Guardrails KMS control"
+    
+  DeployFMI09:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI09
+    Description: "Deploy FMI-09 VPC Endpoint Enabled control"
+    
+  DeployFMI10:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI10
+    Description: "Deploy FMI-10 VPC Endpoint Policy Restricted control"
+    
+
+  DeployGuardrailContentFilters:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployGuardrailContentFilters
+    Description: "Deploy Guardrail Content Filters control"
+    
+
+  DeployGuardrailWordFilters:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployGuardrailWordFilters
+    Description: "Deploy Guardrail Word Filters control"
+    
+  DeployGuardrailPIIFilters:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployGuardrailPIIFilters
+    Description: "Deploy Guardrail PII Filters control"
+    
+  DeployGuardrailContextualGrounding:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployGuardrailContextualGrounding
+    Description: "Deploy Guardrail Contextual Grounding control"
+    
+  DeployFMI02:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI02
+    Description: "Deploy FMI-02 Guardrail IAM Condition control"
+    
+  DeployFMI17:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI17
+    Description: "Deploy FMI-17 CloudTrail Data Events control"
+    
+  DeployFMI18:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI18
+    Description: "Deploy FMI-18 Guardrail CloudWatch Alarms control"
+    
+  DeployFMI19:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI19
+    Description: "Deploy FMI-19 Guardrail Change Monitoring control"
+    
+  DeployFMI11:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI11
+    Description: "Deploy FMI-11 Guardrail Topic Filters control"
+    
+  DeployFMI12:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI12
+    Description: "Deploy FMI-12 Guardrail Content Filters control"
+    
+  DeployFMI13:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI13
+    Description: "Deploy FMI-13 Guardrail Word Policy control"
+    
+  DeployFMI14:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI14
+    Description: "Deploy FMI-14 Guardrail Sensitive Information Policy control"
+    
+  DeployFMI15:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI15
+    Description: "Deploy FMI-15 Guardrail Contextual Grounding Policy control"
+    
+  DeployFMI16:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI16
+    Description: "Deploy FMI-16 Guardrail Automated Reasoning Policy control"
+    
+  DeployRAG01:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployRAG01
+    Description: "Deploy RAG-01 Knowledge Base Data Source Validation control"
+    
+  DeployRAG02:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployRAG02
+    Description: "Deploy RAG-02 Vector Database Encryption control"
+
+  # =========================================================================
+  # Infrastructure Parameters (Required for main template)
+  # =========================================================================
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: "S3 bucket name for storing CloudFormation templates and Config rules pack templates"
+
+Conditions:
+  
+  # =========================================================================
+  # Control Deployment Conditions
+  # =========================================================================
+
+  ShouldDeployFMI03: !Equals [!Ref DeployFMI03, "true"]
+  ShouldDeployFMI01: !Equals [!Ref DeployFMI01, "true"]
+  ShouldDeployFMI04: !Equals [!Ref DeployFMI04, "true"]
+  ShouldDeployFMI05: !Equals [!Ref DeployFMI05, "true"]
+  ShouldDeployFMI06: !Equals [!Ref DeployFMI06, "true"]
+  ShouldDeployFMI07: !Equals [!Ref DeployFMI07, "true"]
+  ShouldDeployFMI08: !Equals [!Ref DeployFMI08, "true"]
+  ShouldDeployFMI09: !Equals [!Ref DeployFMI09, "true"]
+  ShouldDeployFMI10: !Equals [!Ref DeployFMI10, "true"]
+
+  ShouldDeployGuardrailContentFilters: !Equals [!Ref DeployGuardrailContentFilters, "true"]
+
+  ShouldDeployGuardrailWordFilters: !Equals [!Ref DeployGuardrailWordFilters, "true"]
+  ShouldDeployGuardrailPIIFilters: !Equals [!Ref DeployGuardrailPIIFilters, "true"]
+  ShouldDeployGuardrailContextualGrounding: !Equals [!Ref DeployGuardrailContextualGrounding, "true"]
+  ShouldDeployFMI02: !Equals [!Ref DeployFMI02, "true"]
+  ShouldDeployFMI17: !Equals [!Ref DeployFMI17, "true"]
+  ShouldDeployFMI18: !Equals [!Ref DeployFMI18, "true"]
+  ShouldDeployFMI19: !Equals [!Ref DeployFMI19, "true"]
+  ShouldDeployFMI11: !Equals [!Ref DeployFMI11, "true"]
+  ShouldDeployFMI12: !Equals [!Ref DeployFMI12, "true"]
+  ShouldDeployFMI13: !Equals [!Ref DeployFMI13, "true"]
+  ShouldDeployFMI14: !Equals [!Ref DeployFMI14, "true"]
+  ShouldDeployFMI15: !Equals [!Ref DeployFMI15, "true"]
+  ShouldDeployFMI16: !Equals [!Ref DeployFMI16, "true"]
+  ShouldDeployRAG01: !Equals [!Ref DeployRAG01, "true"]
+  ShouldDeployRAG02: !Equals [!Ref DeployRAG02, "true"]
+  
+Resources:
+  # =========================================================================
+  # FMI-03: Tag-Based Access IAM
+  # =========================================================================
+  FMI01ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI03
+    Properties:
+      TemplateURL: controls/fmi-03-tag-based-access-enforced/control-stack.yaml
+
+  # =========================================================================
+  # FMI-01: IAM Least Privilege
+  # =========================================================================
+  FMI02ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI01
+    Properties:
+      TemplateURL: controls/fmi-01-bedrock-wildcard-permissions-prohibited/control-stack.yaml
+
+  # =========================================================================
+  # FMI-04: Model Invocation Logging
+  # =========================================================================
+  FMI04ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI04
+    Properties:
+      TemplateURL: controls/fmi-04-model-invocation-logging-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-05: Prompt Store Enabled
+  # =========================================================================
+  FMI05ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI05
+    Properties:
+      TemplateURL: controls/fmi-05-prompt-store-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-06: Model Logs KMS
+  # =========================================================================
+  FMI06ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI06
+    Properties:
+      TemplateURL: controls/fmi-06-model-logs-encryption-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-07: Knowledge Bases KMS
+  # =========================================================================
+  FMI07ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI07
+    Properties:
+      TemplateURL: controls/fmi-07-kb-encryption-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-08: Guardrails KMS
+  # =========================================================================
+  FMI08ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI08
+    Properties:
+      TemplateURL: controls/fmi-08-guardrail-encryption-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-09: VPC Endpoint Enabled
+  # =========================================================================
+  FMI09ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI09
+    Properties:
+      TemplateURL: controls/fmi-09-vpc-endpoint-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-10: VPC Endpoint Policy Restricted
+  # =========================================================================
+  FMI10ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI10
+    Properties:
+      TemplateURL: controls/fmi-10-vpc-endpoint-policies-restricted/control-stack.yaml
+
+
+
+  # =========================================================================
+  # FMI-02: Guardrail IAM Condition
+  # =========================================================================
+  FMI12ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI02
+    Properties:
+      TemplateURL: controls/fmi-02-guardrails-enforced/control-stack.yaml
+      # Parameters removed - control now uses SSM Parameter Store directly
+
+  # =========================================================================
+  # FMI-17: CloudTrail Data Events
+  # =========================================================================
+  FMI13ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI17
+    Properties:
+      TemplateURL: controls/fmi-17-cloudtrail-data-events-enabled/control-stack.yaml
+      # Parameters removed - control now uses SSM Parameter Store directly
+
+  # =========================================================================
+  # FMI-18: Guardrail CloudWatch Alarms
+  # =========================================================================
+  FMI14ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI18
+    Properties:
+      TemplateURL: controls/fmi-18-guardrail-alarms-configured/control-stack.yaml
+     
+  # =========================================================================
+  # FMI-19: Guardrail Change Monitoring
+  # =========================================================================
+  FMI15ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI19
+    Properties:
+      TemplateURL: controls/fmi-19-guardrail-change-monitoring-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-11: Guardrail Topic Filters
+  # =========================================================================
+  FMI16ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI11
+    Properties:
+      TemplateURL: controls/fmi-11-guardrail-topic-filters-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-12: Guardrail Content Filters
+  # =========================================================================
+  FMI17ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI12
+    Properties:
+      TemplateURL: controls/fmi-12-guardrail-content-filters-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-13: Guardrail Word Policy
+  # =========================================================================
+  FMI18ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI13
+    Properties:
+      TemplateURL: controls/fmi-13-guardrail-word-filters-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-14: Guardrail Sensitive Information Policy
+  # =========================================================================
+  FMI19ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI14
+    Properties:
+      TemplateURL: controls/fmi-14-guardrail-pii-filters-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-15: Guardrail Contextual Grounding Policy
+  # =========================================================================
+  FMI20ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI15
+    Properties:
+      TemplateURL: controls/fmi-15-guardrail-contextual-grounding-enabled/control-stack.yaml
+
+  # =========================================================================
+  # FMI-16: Guardrail Automated Reasoning Policy
+  # =========================================================================
+  FMI21ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI16
+    Properties:
+      TemplateURL: controls/fmi-16-guardrail-automated-reasoning-enabled/control-stack.yaml
+
+  # =========================================================================
+  # RAG-01: Approved Sources
+  # =========================================================================
+  RAG01ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployRAG01
+    Properties:
+      TemplateURL: controls/rag-01-kb-approved-sources-only/control-stack.yaml
+
+  # =========================================================================
+  # RAG-02: Vector DB Encrypted
+  # =========================================================================
+  RAG02ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployRAG02
+    Properties:
+      TemplateURL: controls/rag-02-vector-db-encryption-enabled/control-stack.yaml

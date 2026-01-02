@@ -1,0 +1,423 @@
+################################################################################
+# Bedrock Security Control - FMI-03 Tag-Based Access IAM
+#
+# This unified stack contains all resources for the FMI-03 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+Parameters:
+  # Global parameters from ConfigParametersStack
+
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: Name of the S3 bucket containing Lambda code
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency at which the Config Rules will run
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for non-compliant resources
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Maximum number of automatic remediation attempts
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation attempts
+    
+  # VPC Configuration parameters (optional)
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (use 'null' to disable VPC)
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: Comma-separated list of private subnet IDs for Lambda functions (use 'null' to disable VPC)
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: Comma-separated list of Security Group IDs for Lambda functions (use 'null' to disable VPC)
+    
+  # Control-specific parameters
+  RequiredTagKeys:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-03/RequiredTagKeys
+    Description: Comma-separated list of tag keys that should be required in IAM policy conditions for Bedrock access
+    
+  MinTagConditions:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-03/MinTagConditions
+    Description: Minimum number of tag conditions required in IAM policies granting Bedrock access
+    
+  RolePathFilter:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-03/RolePathFilter
+    Description: Optional IAM path prefix to filter roles
+    
+  RoleTagFilter:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-03/RoleTagFilter
+    Description: Optional tag filter for roles
+    
+  BedrockActions:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-03/BedrockActions
+    Description: Comma-separated list of Bedrock actions to include in the tag-based access policy
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  TagBasedAccessCheckFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "TagBasedAccessCheckFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: IAMReadAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'iam:ListRoles'
+                  - 'iam:ListUsers'
+                  - 'iam:ListGroups'
+                  - 'iam:ListRolePolicies'
+                  - 'iam:ListUserPolicies'
+                  - 'iam:ListGroupPolicies'
+                  - 'iam:ListAttachedRolePolicies'
+                  - 'iam:ListAttachedUserPolicies'
+                  - 'iam:ListAttachedGroupPolicies'
+                  - 'iam:GetRole'
+                  - 'iam:GetRolePolicy'
+                  - 'iam:GetUserPolicy'
+                  - 'iam:GetGroupPolicy'
+                  - 'iam:GetPolicy'
+                  - 'iam:GetPolicyVersion'
+                  - 'iam:ListRoleTags'
+                Resource: '*'
+        - PolicyName: ConfigRulesAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'config:PutEvaluations'
+                Resource: "*"
+
+  TagBasedAccessCheckFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi03-TagBasedAccessEnforcedCheck"
+      Handler: lambda-function.handler
+      Role: !GetAtt TagBasedAccessCheckFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 10
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-03-tag-based-access-enforced-check.zip"
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  TagBasedAccessRemediationFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "TagBasedAccessRemediationFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: IAMManagementAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'iam:GetRole'
+                  - 'iam:GetUser'
+                  - 'iam:GetGroup'
+                  - 'iam:GetRolePolicy'
+                  - 'iam:GetUserPolicy'
+                  - 'iam:GetGroupPolicy'
+                  - 'iam:GetPolicy'
+                  - 'iam:GetPolicyVersion'
+                  - 'iam:PutRolePolicy'
+                  - 'iam:PutUserPolicy'
+                  - 'iam:PutGroupPolicy'
+                  - 'iam:ListRolePolicies'
+                  - 'iam:ListUserPolicies'
+                  - 'iam:ListGroupPolicies'
+                  - 'iam:ListAttachedRolePolicies'
+                  - 'iam:ListAttachedUserPolicies'
+                  - 'iam:ListAttachedGroupPolicies'
+                  - 'iam:CreatePolicy'
+                  - 'iam:AttachRolePolicy'
+                  - 'iam:AttachUserPolicy'
+                  - 'iam:AttachGroupPolicy'
+                Resource: '*'
+        - PolicyName: STSAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'sts:GetCallerIdentity'
+                Resource: '*'
+
+  TagBasedAccessRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi03-TagBasedAccessEnforcedRemediation"
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt TagBasedAccessRemediationFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 5
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-03-tag-based-access-enforced-remediation.zip"
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  RemediationAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "RemediationAutomationRole-TagBasedAccess"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaInvokeAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                Resource: !GetAtt TagBasedAccessRemediationFunction.Arn
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  TagBasedAccessRemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: !Sub "BedrockTagBasedAccessRemediation"
+      Content:
+        schemaVersion: '0.3'
+        description: 'Remediate IAM policies lacking proper tag-based access control for Bedrock'
+        assumeRole: !GetAtt RemediationAutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            description: The ARN of the role that allows Automation to perform the actions on your behalf
+            default: !GetAtt RemediationAutomationRole.Arn
+          EntityType:
+            type: String
+            description: 'Type of IAM entity (role, user, or group)'
+            allowedValues:
+              - role
+              - user
+              - group
+          EntityName:
+            type: String
+            description: 'Name of the IAM entity to remediate'
+          RequiredTagKeys:
+            type: String
+            description: 'Comma-separated list of required tag keys'
+            default: !Ref RequiredTagKeys
+          BedrockActions:
+            type: String
+            description: 'Comma-separated list of Bedrock actions to include in the policy'
+            default: !Ref BedrockActions
+          PolicyName:
+            type: String
+            description: 'Name for the new tag-based access policy'
+            default: 'BedrockTagBasedAccess'
+        mainSteps:
+          - name: RemediateTagBasedAccess
+            action: 'aws:invokeLambdaFunction'
+            description: 'Invoke Lambda function to add tag-based access control to IAM entity'
+            inputs:
+              FunctionName: !Ref TagBasedAccessRemediationFunction
+              Payload: |
+                {
+                  "entityType": "{{ EntityType }}",
+                  "entityName": "{{ EntityName }}",
+                  "requiredTagKeys": "{{ RequiredTagKeys }}",
+                  "bedrockActions": "{{ BedrockActions }}",
+                  "policyName": "{{ PolicyName }}"
+                }
+            outputs:
+              - Name: RemediationResult
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI01Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TagBasedAccessCheckFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI01Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI01Permission
+    Properties:
+      ConfigRuleName: !Sub "fmi-03-bedrock-tag-based-access-enforced"
+      Description: "Checks if IAM roles granting Bedrock permissions include proper tag-based access control conditions - Control ID: FMI-03"
+      InputParameters:
+        requiredTagKeys: !Ref RequiredTagKeys
+        minTagConditions: !Ref MinTagConditions
+        rolePathFilter: !Ref RolePathFilter
+        roleTagFilter: !Ref RoleTagFilter
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::IAM::Role
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ConfigurationItemChangeNotification
+          - EventSource: aws.config
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+            MessageType: ScheduledNotification
+        SourceIdentifier: !GetAtt TagBasedAccessCheckFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  FMI01Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref FMI01Check
+      TargetId: !Ref TagBasedAccessRemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt RemediationAutomationRole.Arn
+        EntityType:
+          StaticValue:
+            Values:
+              - role
+        EntityName:
+          ResourceValue:
+            Value: RESOURCE_ID
+        RequiredTagKeys:
+          StaticValue:
+            Values:
+              - !Ref RequiredTagKeys
+        BedrockActions:
+          StaticValue:
+            Values:
+              - !Ref BedrockActions
+        PolicyName:
+          StaticValue:
+            Values:
+              - BedrockTagBasedAccess
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Tag-Based Access Check Lambda Function
+    Value: !GetAtt TagBasedAccessCheckFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock Tag-Based Access Remediation Lambda Function
+    Value: !GetAtt TagBasedAccessRemediationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Tag-Based Access Remediation
+    Value: !Ref TagBasedAccessRemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the SSM Automation Role for Tag-Based Access Remediation
+    Value: !GetAtt RemediationAutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Tag-Based Access
+    Value: !Ref FMI01Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

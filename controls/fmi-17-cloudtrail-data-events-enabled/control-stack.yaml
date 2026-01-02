@@ -1,0 +1,411 @@
+################################################################################
+# Bedrock Security Control - FMI-17 CloudTrail Data Events
+#
+# This unified stack contains all resources for the FMI-17 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+Parameters:
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Number of retry attempts for remediation
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation retries
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for Config rules
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: S3 bucket name for CloudFormation templates
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (leave empty to disable VPC)
+    
+  TrailName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-17/TrailName
+    Description: Name of the CloudTrail trail to use or create
+    
+
+    
+  IncludeManagementEvents:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-17/IncludeManagementEvents
+    Description: Whether to include management events in the trail
+    
+  ResourceTypes:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-17/ResourceTypes
+    Description: Comma-separated list of AWS resource types to monitor for CloudTrail data events
+    
+    
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  CloudTrailDataEventsFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "CloudTrailDataEventsFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: CloudTrailAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'cloudtrail:DescribeTrails'
+                  - 'cloudtrail:GetTrailStatus'
+                  - 'cloudtrail:GetEventSelectors'
+                Resource: '*'
+        - PolicyName: ConfigRulesAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'config:PutEvaluations'
+                Resource: "*"
+
+  CloudTrailDataEventsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi17-CloudtrailDataEventsEnabledCheck"
+      Handler: lambda-function.handler
+      Role: !GetAtt CloudTrailDataEventsFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 30
+      ReservedConcurrentExecutions: 10
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-17-cloudtrail-data-events-check.zip"
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  CloudTrailDataEventsRemediationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:  "CloudTrailDataEventsRemediationRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: "CloudTrailDataEventsRemediationPolicy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - cloudtrail:GetEventSelectors
+                  - cloudtrail:PutEventSelectors
+                  - cloudtrail:CreateTrail
+                  - cloudtrail:AddTags
+                  - cloudtrail:StartLogging
+                Resource: '*'
+
+
+  CloudTrailDataEventsRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi17-CloudtrailDataEventsEnabledRemediation"
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt CloudTrailDataEventsRemediationRole.Arn
+      Runtime: python3.11
+      Timeout: 60
+      ReservedConcurrentExecutions: 5
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-17-cloudtrail-data-events-remediation.zip"
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  RemediationAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke remediation Lambda"
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt CloudTrailDataEventsRemediationFunction.Arn
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  CloudTrailDataEventsRemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "CloudTrailDataEventsRemediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: Remediation for Bedrock CloudTrail data events
+        assumeRole: !GetAtt RemediationAutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+                type: String
+                description: The ARN of the role that allows Automation to perform the actions on your behalf
+                default: !GetAtt RemediationAutomationRole.Arn
+          TrailName:
+                type: String
+                description: Name of the CloudTrail trail (parameter kept for compatibility but not used in remediation)
+                default: !Sub '${TrailName}-${AWS::AccountId}'
+          IncludeManagementEvents:
+                type: String
+                description: Whether to include management events in the trail
+                default: !Ref IncludeManagementEvents
+                allowedValues:
+                  - "true"
+                  - "false"
+          ResourceTypes:
+                type: String
+                description: Comma-separated list of AWS resource types to monitor for CloudTrail data events
+                default: !Ref ResourceTypes
+        mainSteps:
+          - name: InvokeRemediationFunction
+            action: aws:invokeLambdaFunction
+            timeoutSeconds: 120
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref CloudTrailDataEventsRemediationFunction
+              Payload: !Sub |
+                {
+                  "trailName": "{{TrailName}}",
+                  "includeManagementEvents": "{{IncludeManagementEvents}}",
+                  "resourceTypes": "{{ResourceTypes}}"
+                }
+            outputs:
+              - Name: LambdaResponse
+                Selector: $.Payload
+                Type: String
+          - name: CheckRemediationResult
+            action: aws:executeScript
+            timeoutSeconds: 60
+            onFailure: Abort
+            inputs:
+              Runtime: python3.11
+              Handler: check_result
+              Script: |
+                import json
+                
+                def check_result(events, context):
+                    lambda_response = events['LambdaResponse']
+                    
+                    # Parse the Lambda response
+                    try:
+                        response_data = json.loads(lambda_response)
+                        status_code = response_data.get('statusCode', 500)
+                        message = response_data.get('message', 'Unknown error')
+                        
+                        if status_code == 200:
+                            return {
+                                'status': 'SUCCESS',
+                                'message': message
+                            }
+                        else:
+                            raise Exception(f"Remediation failed: {message}")
+                            
+                    except json.JSONDecodeError:
+                        raise Exception(f"Invalid Lambda response format: {lambda_response}")
+                    except Exception as e:
+                        raise Exception(f"Remediation validation failed: {str(e)}")
+              InputPayload:
+                LambdaResponse: "{{ InvokeRemediationFunction.LambdaResponse }}"
+            outputs:
+              - Name: RemediationStatus
+                Selector: $.Payload.status
+                Type: String
+              - Name: RemediationMessage
+                Selector: $.Payload.message
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI13Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CloudTrailDataEventsFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI13Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI13Permission
+    Properties:
+      ConfigRuleName: "fmi-17-cloudtrail-data-events"
+      Description: "Checks if CloudTrail data events are enabled for specified resource types - Control ID: FMI-17"
+      InputParameters: !Sub |
+        {
+          "resourceTypes": "${ResourceTypes}"
+        }
+      Scope:
+        ComplianceResourceTypes: [] # Empty list for account-level evaluation
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+            MessageType: ScheduledNotification
+        SourceIdentifier: !GetAtt CloudTrailDataEventsFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  FMI13Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref FMI13Check
+      TargetId: !Ref CloudTrailDataEventsRemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt RemediationAutomationRole.Arn
+        TrailName:
+          StaticValue:
+            Values:
+              - !Sub '${TrailName}-${AWS::AccountId}'
+        IncludeManagementEvents:
+          StaticValue:
+            Values:
+              - !Ref IncludeManagementEvents
+        ResourceTypes:
+          StaticValue:
+            Values:
+              - !Ref ResourceTypes
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock CloudTrail Data Events Check Lambda Function
+    Value: !GetAtt CloudTrailDataEventsFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock CloudTrail Data Events Remediation Lambda Function
+    Value: !GetAtt CloudTrailDataEventsRemediationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for CloudTrail Data Events Remediation
+    Value: !Ref CloudTrailDataEventsRemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for CloudTrail Data Events
+    Value: !GetAtt RemediationAutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for CloudTrail Data Events
+    Value: !Ref FMI13Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

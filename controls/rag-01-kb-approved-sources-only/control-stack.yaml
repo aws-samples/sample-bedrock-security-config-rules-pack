@@ -1,0 +1,451 @@
+################################################################################
+# Bedrock Security Control - RAG-01 Knowledge Base Data Source Validation
+#
+# This unified stack contains all resources for the RAG-01 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+Parameters:
+   
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation retries
+    
+  GuardrailChangeNotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/GuardrailChangeNotificationTopicArn
+    Description: SNS topic ARN for receiving guardrail change notifications
+
+    
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: S3 bucket name for CloudFormation templates
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for Config rules
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  TargetOuId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TargetOuId
+    Description: Organization Unit ID where the SCP should be applied
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Number of retry attempts for remediation
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (leave empty to disable VPC)
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  RequiredTags:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/rag-01/RequiredTags
+    Description: Comma-separated list of required tags in key=value format for S3 buckets
+    
+  ApprovedDataSourceTypes:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/rag-01/ApprovedDataSourceTypes
+    Description: Comma-separated list of approved data source types
+    
+
+  AutoRemoveUnauthorizedSources:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/rag-01/AutoRemoveUnauthorizedSources
+    Description: Auto remove unauthorized sources for RAG-01 control
+    
+  AllowedRegions:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/rag-01/AllowedRegions
+    Description: Comma-separated list of allowed AWS regions for data sources
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for Config rules
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (leave empty to disable VPC)
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Number of retry attempts for remediation
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation retries
+    
+Conditions:
+  HasNotificationTopic: !Not [!Equals [!Ref NotificationTopicArn, "null"]]
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  KnowledgeBaseDataSourceCheckRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "KnowledgeBaseDataSourceCheckRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockKBAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:ListKnowledgeBases'
+                  - 'bedrock:GetKnowledgeBase'
+                  - 'bedrock:ListDataSources'
+                  - 'bedrock:GetDataSource'
+                Resource: '*'
+        - PolicyName: S3TagAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketTagging'
+                Resource: '*'
+        - PolicyName: ConfigRulesAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'config:PutEvaluations'
+                Resource: "*"
+
+  KnowledgeBaseDataSourceCheckFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "rag01-ApprovedSourcesCheck"
+      Handler: lambda-function.handler
+      Role: !GetAtt KnowledgeBaseDataSourceCheckRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      ReservedConcurrentExecutions: 10
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/rag-01-approved-sources-check.zip"
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  KnowledgeBaseDataSourceRemediationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "KnowledgeBaseDataSourceRemediationRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: !Sub "KnowledgeBaseDataSourceRemediationPolicy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:ListKnowledgeBases'
+                  - 'bedrock:GetKnowledgeBase'
+                  - 'bedrock:ListDataSources'
+                  - 'bedrock:GetDataSource'
+                  - 'bedrock:DeleteDataSource'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 's3:GetBucketTagging'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'sns:Publish'
+                Resource: !If [HasNotificationTopic, !Ref NotificationTopicArn, !Ref 'AWS::NoValue']
+
+
+  KnowledgeBaseDataSourceRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "rag01-ApprovedSourcesRemediation"
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt KnowledgeBaseDataSourceRemediationRole.Arn
+      Runtime: python3.9
+      Timeout: 300
+      ReservedConcurrentExecutions: 5
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/rag-01-approved-sources-remediation.zip"
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  RemediationAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke remediation Lambda"
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt KnowledgeBaseDataSourceRemediationFunction.Arn
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  KnowledgeBaseDataSourceRemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "KnowledgeBaseDataSourceRemediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: Remediation for Knowledge Base Data Source Validation
+        assumeRole: !GetAtt RemediationAutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            description: The ARN of the role that allows Automation to perform the actions on your behalf
+            default: !GetAtt RemediationAutomationRole.Arn
+          ResourceId:
+            type: String
+            description: The ID of the knowledge base resource to remediate
+          RequiredTags:
+            type: String
+            description: Required tags for S3 buckets
+            default: !Ref RequiredTags
+          NotificationTopicArn:
+            type: String
+            description: SNS topic ARN for notifications
+            default: !Ref NotificationTopicArn
+          AutoRemove:
+            type: String
+            description: Automatically remove unauthorized data sources
+            default: !Ref AutoRemoveUnauthorizedSources
+
+        mainSteps:
+          - name: InvokeRemediationFunction
+            action: aws:invokeLambdaFunction
+            timeoutSeconds: 300
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref KnowledgeBaseDataSourceRemediationFunction
+              Payload: !Sub |
+                {
+                  "resourceId": "{{ResourceId}}",
+                  "requiredTags": "{{RequiredTags}}",
+                  "notificationTopicArn": "{{NotificationTopicArn}}",
+                  "autoRemove": "{{AutoRemove}}"
+                }
+            outputs:
+              - Name: Response
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  RAG01Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref KnowledgeBaseDataSourceCheckFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  RAG01Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: RAG01Permission
+    Properties:
+      ConfigRuleName: !Sub "rag-01-knowledge-base-data-source-validation"
+      Description: "Validates that knowledge bases only use approved data sources - Control ID: RAG-01"
+      InputParameters:
+        RequiredTags: !Ref RequiredTags
+        ApprovedDataSourceTypes: !Ref ApprovedDataSourceTypes
+        AllowedRegions: !Ref AllowedRegions
+      Scope:
+        ComplianceResourceTypes:
+          - "AWS::Bedrock::KnowledgeBase"
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ConfigurationItemChangeNotification
+          - EventSource: aws.config
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+            MessageType: ScheduledNotification
+        SourceIdentifier: !GetAtt KnowledgeBaseDataSourceCheckFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  RAG01Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref RAG01Check
+      TargetId: !Ref KnowledgeBaseDataSourceRemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt RemediationAutomationRole.Arn
+        ResourceId:
+          ResourceValue:
+            Value: RESOURCE_ID
+       
+        RequiredTags:
+          StaticValue:
+            Values:
+              - !Ref RequiredTags
+        NotificationTopicArn:
+          StaticValue:
+            Values:
+              - !Ref NotificationTopicArn
+        AutoRemove:
+          StaticValue:
+            Values:
+              - !Ref AutoRemoveUnauthorizedSources
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Knowledge Base Data Source Check Lambda Function
+    Value: !GetAtt KnowledgeBaseDataSourceCheckFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Knowledge Base Data Source Remediation Lambda Function
+    Value: !GetAtt KnowledgeBaseDataSourceRemediationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Knowledge Base Data Source Remediation
+    Value: !Ref KnowledgeBaseDataSourceRemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for Knowledge Base Data Source Validation
+    Value: !GetAtt RemediationAutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Knowledge Base Data Source Validation
+    Value: !Ref RAG01Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

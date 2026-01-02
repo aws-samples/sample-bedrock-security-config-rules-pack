@@ -1,0 +1,1044 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SSM Parameters for Bedrock Security Config Rules Pack
+Resources:
+  TemplatesBucketNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/TemplatesBucketName
+      Type: String
+      Value: bedrock-security-configrules-pack
+      Description: S3 bucket name for CloudFormation templates
+  GuardrailChangeNotificationTopicArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/GuardrailChangeNotificationTopicArn
+      Type: String
+      Value: 'null'
+      Description: "SNS topic ARN for receiving guardrail change notifications (leave empty to create new topic). When\
+        \ any guardrail change is detected,\nnotifications will be sent to this topic.\
+        \ The topic should be configured with appropriate \nsubscribers (email, SMS,\
+        \ or other notification endpoints).\n\nIf not provided, a new SNS topic will be created for each control.\nThis allows centralized\
+        \ notification management across all security controls.\n\nFormat: arn:aws:sns:region:account-id:topic-name\n\
+        Example: arn:aws:sns:us-east-1:123456789012:bedrock-security-notifications\n"
+  NotificationTopicArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/NotificationTopicArn
+      Type: String
+      Value: arn:aws:sns:us-east-1:123456789012:MyExampleSNSTopic
+      Description: General notification topic ARN
+  
+  ConfigRuleFrequencyParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/ConfigRuleFrequency
+      Type: String
+      Value: TwentyFour_Hours
+      Description: Frequency for Config rule evaluations
+  EnableAutoRemediationParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/EnableAutoRemediation
+      Type: String
+      Value: 'false'
+      Description: Enable automatic remediation for Config rules
+  RemediationRetryAttemptsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/RemediationRetryAttempts
+      Type: String
+      Value: '5'
+      Description: Number of retry attempts for remediation
+  RemediationRetrySecondsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/RemediationRetrySeconds
+      Type: String
+      Value: '30'
+      Description: Seconds to wait between remediation retries
+  TargetOuIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/TargetOuId
+      Type: String
+      Value: 'root'
+      Description: Organization Unit ID where the SCP should be applied
+
+  DeployFMI03Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI03
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-03 control
+  DeployFMI01Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI01
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-01 control
+  DeployFMI04Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI04
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-04 control
+  DeployFMI05Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI05
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-05 control
+  DeployFMI06Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI06
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-06 control
+  DeployFMI07Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI07
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-07 control
+  DeployFMI08Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI08
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-08 control
+  DeployFMI09Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI09
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-09 control
+  DeployFMI10Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI10
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-10 control
+
+  DeployGuardrailContentFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployGuardrailContentFilters
+      Type: String
+      Value: 'false'
+      Description: Deploy Guardrail Content Filters control
+  DeployGuardrailTopicFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployGuardrailTopicFilters
+      Type: String
+      Value: 'false'
+      Description: Deploy Guardrail Topic Filters control
+  DeployGuardrailWordFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployGuardrailWordFilters
+      Type: String
+      Value: 'false'
+      Description: Deploy Guardrail Word Filters control
+  DeployGuardrailPIIFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployGuardrailPIIFilters
+      Type: String
+      Value: 'false'
+      Description: Deploy Guardrail PII Filters control
+  DeployGuardrailContextualGroundingParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployGuardrailContextualGrounding
+      Type: String
+      Value: 'false'
+      Description: Deploy Guardrail Contextual Grounding control
+  DeployFMI02Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI02
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-02 control
+  DeployFMI17Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI17
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-17 control
+  DeployFMI18Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI18
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-18 control
+  DeployFMI19Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI19
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-19 control
+  DeployFMI11Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI11
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-11 control
+  DeployFMI12Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI12
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-12 control
+  DeployFMI13Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI13
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-13 control
+  DeployFMI14Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI14
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-14 control
+  DeployFMI15Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI15
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-15 control
+  DeployFMI16Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployFMI16
+      Type: String
+      Value: 'true'
+      Description: Deploy FMI-16 control
+  DeployRAG01Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployRAG01
+      Type: String
+      Value: 'true'
+      Description: Deploy RAG-01 control
+  DeployRAG02Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/DeployRAG02
+      Type: String
+      Value: 'true'
+      Description: Deploy RAG-02 control
+
+  RequiredTagKeysParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-03/RequiredTagKeys
+      Type: String
+      Value: Environment,Project,Owner
+      Description: Comma-separated list of required tag keys for IAM policies
+  MinTagConditionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-03/MinTagConditions
+      Type: String
+      Value: '1'
+      Description: Minimum number of tag conditions required in policies
+  FMI01RolePathFilterParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-03/RolePathFilter
+      Type: String
+      Value: /test/
+      Description: Optional IAM path prefix to filter roles for evaluation
+  FMI02RolePathFilterParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-01/RolePathFilter
+      Type: String
+      Value: /test/
+      Description: Optional IAM path prefix to filter roles for evaluation
+  FMI01RoleTagFilterParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-03/RoleTagFilter
+      Type: String
+      Value: Environment=test
+      Description: 'Optional tag filter for roles (format: key=value)'
+  FMI02RoleTagFilterParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-01/RoleTagFilter
+      Type: String
+      Value: Environment=dev
+      Description: 'Optional tag filter for roles (format: key=value)'
+  FMI01BedrockActionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-03/BedrockActions
+      Type: String
+      Value: bedrock:InvokeModel,bedrock:InvokeModelWithResponseStream,bedrock:GetFoundationModel,bedrock:ListFoundationModels
+      Description: Comma-separated list of Bedrock actions to include in tag-based access policies
+  MaxWildcardActionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-01/MaxWildcardActions
+      Type: String
+      Value: '0'
+      Description: Maximum number of wildcard actions allowed in policies
+  AllowedWildcardActionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-01/AllowedWildcardActions
+      Type: String
+      Value: bedrock:Get*,bedrock:List*,bedrock:Describe*
+      Description: Comma-separated list of explicitly allowed wildcard actions
+  ProhibitedActionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-01/ProhibitedActions
+      Type: String
+      Value: bedrock:DeleteCustomModel
+      Description: Comma-separated list of prohibited Bedrock actions
+  RequireResourceRestrictionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-01/RequireResourceRestrictions
+      Type: String
+      Value: 'false'
+      Description: Whether to require resource-level restrictions in policies
+  AllowedActionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-01/AllowedActions
+      Type: String
+      Value: bedrock:InvokeModel,bedrock:InvokeModelWithResponseStream,bedrock:GetFoundationModel,bedrock:ListFoundationModels,bedrock:CreateModelCustomizationJob
+      Description: Comma-separated list of allowed Bedrock actions for least privilege
+        policies
+  RemediationActionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-01/RemediationActions
+      Type: String
+      Value: replace_wildcards
+      Description: Comma-separated list of remediation actions to perform
+
+
+  # Guardrail Content Filters Parameters
+  GuardrailContentFilterStrengthParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-content-filters/ContentFilterStrength
+      Type: String
+      Value: MEDIUM
+      Description: Required minimum content filter strength
+  GuardrailContentFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-content-filters/ContentFilters
+      Type: String
+      Value: SEXUAL,VIOLENCE,HATE,INSULTS
+      Description: Required content filter types
+  GuardrailContentFilterActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-content-filters/ContentFilterAction
+      Type: String
+      Value: BLOCK
+      Description: Action for content filter violations
+
+  # Guardrail Topic Filters Parameters (Legacy)
+  GuardrailTopicFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-topic-filters/TopicFilters
+      Type: String
+      Value: Violence,HateSpeech,SelfHarm
+      Description: Required topic filter names
+  GuardrailTopicFilterActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-topic-filters/TopicFilterAction
+      Type: String
+      Value: DENY
+      Description: Action for topic filter violations
+
+  # FMI-11 Guardrail Topic Filters Parameters
+  FMI16GuardrailNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-11/GuardrailName
+      Type: String
+      Value: 'null'
+      Description: Optional specific guardrail name to validate for FMI-11
+  FMI16TopicFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-11/TopicFilters
+      Type: String
+      Value: Violence,HateSpeech,SelfHarm
+      Description: Comma-separated list of topic filters to validate for FMI-11 (required for remediation)
+  FMI16TopicFilterActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-11/TopicFilterAction
+      Type: String
+      Value: DENY
+      Description: Topic filter action type for FMI-11
+  FMI16InputActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-11/InputAction
+      Type: String
+      Value: BLOCK
+      Description: Input action for topic filters (BLOCK or NONE) for FMI-11
+  FMI16OutputActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-11/OutputAction
+      Type: String
+      Value: BLOCK
+      Description: Output action for topic filters (BLOCK or NONE) for FMI-11
+  FMI16ExampleParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-11/Example
+      Type: String
+      Value: 'null'
+      Description: Optional example text to validate in topic examples for FMI-11
+  FMI16RequiredTagsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-11/RequiredTags
+      Type: String
+      Value: 'null'
+      Description: Optional required tags in key=value,key2=value2 format for FMI-11
+
+  # FMI-12 Guardrail Content Filters Parameters
+  FMI17GuardrailNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-12/GuardrailName
+      Type: String
+      Value: 'null'
+      Description: Optional specific guardrail name to validate for FMI-12
+  FMI17ContentFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-12/ContentFilters
+      Type: String
+      Value: SEXUAL,VIOLENCE,HATE,INSULTS
+      Description: Comma-separated list of content filter types to validate for FMI-12 (required for remediation)
+  FMI17InputStrengthParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-12/InputStrength
+      Type: String
+      Value: MEDIUM
+      Description: Minimum input strength for content filters (NONE, LOW, MEDIUM, HIGH) for FMI-12
+  FMI17OutputStrengthParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-12/OutputStrength
+      Type: String
+      Value: MEDIUM
+      Description: Minimum output strength for content filters (NONE, LOW, MEDIUM, HIGH) for FMI-12
+  FMI17InputActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-12/InputAction
+      Type: String
+      Value: BLOCK
+      Description: Input action for content filters (BLOCK or NONE) for FMI-12
+  FMI17OutputActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-12/OutputAction
+      Type: String
+      Value: BLOCK
+      Description: Output action for content filters (BLOCK or NONE) for FMI-12
+  FMI17RequiredTagsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-12/RequiredTags
+      Type: String
+      Value: 'null'
+      Description: Optional required tags in key=value,key2=value2 format for FMI-12
+
+  # FMI-13 Guardrail Word Policy Parameters
+  FMI18GuardrailNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-13/GuardrailName
+      Type: String
+      Value: 'null'
+      Description: Optional specific guardrail name to validate for FMI-13
+  FMI18BlockedWordsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-13/BlockedWords
+      Type: String
+      Value: 'null'
+      Description: Comma-separated list of specific words to validate for FMI-13 (required for remediation)
+  FMI18ManagedWordListsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-13/ManagedWordLists
+      Type: String
+      Value: PROFANITY
+      Description: Comma-separated list of managed word list types to validate for FMI-13 (PROFANITY)
+  FMI18InputActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-13/InputAction
+      Type: String
+      Value: BLOCK
+      Description: Input action for word policy (BLOCK or NONE) for FMI-13
+  FMI18OutputActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-13/OutputAction
+      Type: String
+      Value: BLOCK
+      Description: Output action for word policy (BLOCK or NONE) for FMI-13
+  FMI18RequiredTagsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-13/RequiredTags
+      Type: String
+      Value: 'null'
+      Description: Optional required tags in key=value,key2=value2 format for FMI-13
+
+  # FMI-14 Guardrail Sensitive Information Policy Parameters
+  FMI19GuardrailNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/GuardrailName
+      Type: String
+      Value: 'null'
+      Description: Optional specific guardrail name to validate for FMI-14
+  FMI19PIIEntitiesParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/PIIEntities
+      Type: String
+      Value: EMAIL,PHONE,CREDIT_DEBIT_CARD_NUMBER,US_SOCIAL_SECURITY_NUMBER
+      Description: Comma-separated list of PII entity types to validate for FMI-14 (required for remediation)
+  FMI19PIIActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/PIIAction
+      Type: String
+      Value: BLOCK
+      Description: Action for PII entity violations (BLOCK, ANONYMIZE, or NONE) for FMI-14
+  FMI19InputActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/InputAction
+      Type: String
+      Value: BLOCK
+      Description: Input action for sensitive information policy (BLOCK, ANONYMIZE, or NONE) for FMI-14
+  FMI19OutputActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/OutputAction
+      Type: String
+      Value: BLOCK
+      Description: Output action for sensitive information policy (BLOCK, ANONYMIZE, or NONE) for FMI-14
+  FMI19RegexPattern1Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/RegexPattern1
+      Type: String
+      Value: '\\d{3}-\\d{2}-\\d{4}'
+      Description: First custom regex pattern for FMI-14 (SSN format example)
+  FMI19RegexPattern2Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/RegexPattern2
+      Type: String
+      Value: 'null'
+      Description: Second custom regex pattern for FMI-14
+  FMI19RegexPattern3Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/RegexPattern3
+      Type: String
+      Value: 'null'
+      Description: Third custom regex pattern for FMI-14
+  FMI19RegexPattern4Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/RegexPattern4
+      Type: String
+      Value: 'null'
+      Description: Fourth custom regex pattern for FMI-14
+  FMI19RegexPattern5Param:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/RegexPattern5
+      Type: String
+      Value: 'null'
+      Description: Fifth custom regex pattern for FMI-14
+  FMI19RequiredTagsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-14/RequiredTags
+      Type: String
+      Value: 'null'
+      Description: Optional required tags in key=value,key2=value2 format for FMI-14
+
+  # FMI-15 Guardrail Contextual Grounding Policy Parameters
+  FMI20GuardrailNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-15/GuardrailName
+      Type: String
+      Value: 'null'
+      Description: Optional specific guardrail name to validate for FMI-15
+  FMI20FilterTypesParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-15/FilterTypes
+      Type: String
+      Value: GROUNDING,RELEVANCE
+      Description: Comma-separated list of contextual grounding filter types to validate for FMI-15 (required for remediation)
+  FMI20GroundingThresholdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-15/GroundingThreshold
+      Type: String
+      Value: '0.75'
+      Description: Minimum threshold for grounding filter (0.0-1.0) for FMI-15
+  FMI20RelevanceThresholdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-15/RelevanceThreshold
+      Type: String
+      Value: '0.75'
+      Description: Minimum threshold for relevance filter (0.0-1.0) for FMI-15
+  FMI20FilterActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-15/FilterAction
+      Type: String
+      Value: BLOCK
+      Description: Action for contextual grounding violations (BLOCK or NONE) for FMI-15
+  FMI20RequiredTagsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-15/RequiredTags
+      Type: String
+      Value: 'null'
+      Description: Optional required tags in key=value,key2=value2 format for FMI-15
+
+  # FMI-16 Guardrail Automated Reasoning Policy Parameters
+  FMI21GuardrailNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-16/GuardrailName
+      Type: String
+      Value: 'null'
+      Description: Optional specific guardrail name to validate for FMI-16
+  FMI21AutomatedReasoningPoliciesParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-16/AutomatedReasoningPolicies
+      Type: String
+      Value: 'null'
+      Description: Comma-separated list of automated reasoning policy ARNs or IDs for FMI-16
+  FMI21MinConfidenceThresholdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-16/MinConfidenceThreshold
+      Type: String
+      Value: '0.8'
+      Description: Minimum confidence threshold for automated reasoning (0.0-1.0) for FMI-16
+  FMI21RequiredTagsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-16/RequiredTags
+      Type: String
+      Value: 'null'
+      Description: Optional required tags in key=value,key2=value2 format for FMI-16
+
+  # Guardrail Word Filters Parameters
+  GuardrailWordFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-word-filters/WordFilters
+      Type: String
+      Value: PROFANITY
+      Description: Required word filter types
+  GuardrailWordFilterActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-word-filters/WordFilterAction
+      Type: String
+      Value: BLOCK
+      Description: Action for word filter violations
+
+  # Guardrail PII Filters Parameters
+  GuardrailPIIFiltersParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-pii-filters/PIIFilters
+      Type: String
+      Value: CREDIT_DEBIT_CARD_NUMBER,US_SOCIAL_SECURITY_NUMBER,PASSWORD
+      Description: Required PII filter types
+  GuardrailPIIFilterActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-pii-filters/PIIFilterAction
+      Type: String
+      Value: BLOCK
+      Description: Action for PII filter violations
+
+  # Guardrail Contextual Grounding Parameters
+  GuardrailContextualGroundingActionParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/guardrail-contextual-grounding/ContextualGroundingAction
+      Type: String
+      Value: BLOCK
+      Description: Action for contextual grounding violations
+  LoggingDestinationParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-04/LoggingDestination
+      Type: String
+      Value: CloudWatch
+      Description: Logging destination for FMI-04 control
+  LogGroupRetentionDaysParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-04/LogGroupRetentionDays
+      Type: String
+      Value: '90'
+      Description: Log group retention days for FMI-04 control
+  InvocationLogsS3BucketNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-04/InvocationLogsS3BucketName
+      Type: String
+      Value: modelinvocationlogs
+      Description: S3 bucket for invocation logs in FMI-04 control
+  InvocationLogsLogGroupNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-04/InvocationLogsLogGroupName
+      Type: String
+      Value: /bedrock/modelinvocationlogs
+      Description: Log group name for invocation logs in FMI-04 control
+
+  # FMI-05 Prompt Store Parameters
+  FMI05RequireVersioningParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-05/RequireVersioning
+      Type: String
+      Value: 'true'
+      Description: Whether prompt versioning must be enabled for FMI-05 control
+  FMI05MinPromptCountParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-05/MinPromptCount
+      Type: String
+      Value: '1'
+      Description: Minimum number of prompts required in the account for FMI-05 control
+
+  # FMI-02 Additional Parameters
+  FMI12AllowedBedrockActionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-02/AllowedBedrockActions
+      Type: String
+      Value: 'bedrock:InvokeModel,bedrock:InvokeModelWithResponseStream'
+      Description: Comma-separated list of Bedrock actions that must have guardrail conditions for FMI-02 control
+  FMI12GuardrailConditionKeyParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-02/GuardrailConditionKey
+      Type: String
+      Value: 'bedrock:guardrailIdentifier'
+      Description: IAM condition key for guardrail enforcement in SCPs for FMI-02 control
+
+  VpcEndpointPolicyConditionKeyParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-10/VpcEndpointPolicyConditionKey
+      Type: String
+      Value: aws:PrincipalTag/Environment
+      Description: IAM condition key for VPC endpoint policy restrictions
+  VpcEndpointPolicyConditionValuesParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-10/VpcEndpointPolicyConditionValues
+      Type: String
+      Value: dev,development
+      Description: Comma-separated values for VPC endpoint policy condition
+
+  FMI09DefaultSubnetIdsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-09/DefaultSubnetIds
+      Type: String
+      Value: 'null'
+      Description: Default subnet IDs for FMI-09 control
+  RequiredGuardrailArnsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-02/RequiredGuardrailArns
+      Type: String
+      Value: arn:aws:bedrock:*:*:guardrail/*
+      Description: Comma-separated list of required guardrail ARNs for SCP enforcement
+  TrailNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-17/TrailName
+      Type: String
+      Value: dev-bedrock-data-trail
+      Description: CloudTrail trail name for Bedrock data events
+  IncludeManagementEventsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-17/IncludeManagementEvents
+      Type: String
+      Value: 'false'
+      Description: Include management events in FMI-17 control
+  FMI13ResourceTypesParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-17/ResourceTypes
+      Type: String
+      Value: AWS::Bedrock::Model,AWS::Bedrock::AsyncInvoke,AWS::Bedrock::Guardrail,AWS::Bedrock::AgentAlias,AWS::Bedrock::FlowAlias,AWS::Bedrock::InlineAgent,AWS::Bedrock::KnowledgeBase,AWS::Bedrock::PromptVersion,AWS::Bedrock::Session,AWS::Bedrock::FlowExecution
+      Description: Comma-separated list of AWS resource types to monitor for CloudTrail data events in FMI-17 control
+  # FMI-19 Guardrail Change Monitoring Parameters (Simplified Approach)
+  FMI15EventBridgeRuleNameParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-19/EventBridgeRuleName
+      Type: String
+      Value: bedrock-guardrail-change-alerts
+      Description: EventBridge rule name for direct SNS alerts on guardrail changes
+  
+  FMI15EventBridgeRuleStateParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-19/EventBridgeRuleState
+      Type: String
+      Value: ENABLED
+      Description: 'State of the EventBridge rule for guardrail change monitoring. Set to "ENABLED" to actively monitor guardrail changes, or "DISABLED" to temporarily suspend monitoring.'
+  
+  FMI15GuardrailChangeNotificationTopicArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-19/GuardrailChangeNotificationTopicArn
+      Type: String
+      Value: 'null'
+      Description: 'SNS topic ARN for immediate guardrail change notifications. If not provided, a new SNS topic will be created automatically during remediation.'
+
+  RequiredTagsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/rag-01/RequiredTags
+      Type: String
+      Value: BedrockApproved=true,Environment=dev
+      Description: Comma-separated list of required tags in key=value format for S3
+        buckets
+  ApprovedDataSourceTypesParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/rag-01/ApprovedDataSourceTypes
+      Type: String
+      Value: S3
+      Description: Comma-separated list of approved data source types
+  AutoRemoveUnauthorizedSourcesParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/rag-01/AutoRemoveUnauthorizedSources
+      Type: String
+      Value: 'true'
+      Description: Auto remove unauthorized sources for RAG-01 control
+
+  AllowAWSManagedKeysParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/rag-02/AllowAWSManagedKeys
+      Type: String
+      Value: 'false'
+      Description: Whether to allow AWS managed keys for vector database encryption
+
+  VpcIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/VpcId
+      Type: String
+      Value: 'null'
+      Description: VPC ID for Lambda functions (leave empty to disable VPC)
+  SecurityGroupIdsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/SecurityGroupIds
+      Type: String
+      Value: 'null'
+      Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+  
+  FMI14KmsKeyIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-18/KmsKeyId
+      Type: String
+      Value: 'null'
+      Description: KMS key ID for SNS topic encryption (leave empty to disable encryption)
+  FMI06KmsKeyIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-06/KmsKeyId
+      Type: String
+      Value: 'null'
+      Description: KMS key ID for SNS topic encryption (leave empty to disable encryption)
+  FMI06RequiredKmsKeyIdsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-06/RequiredKmsKeyIds
+      Type: String
+      Value: 'null'
+      Description: Comma-separated list of required KMS key IDs for model logs encryption (leave empty to accept any customer-managed key)
+  FMI06ExistingLoggingRoleArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-06/ExistingLoggingRoleArn
+      Type: String
+      Value: 'null'
+      Description: ARN of existing IAM role for Bedrock logging (optional)
+  FMI07KmsKeyIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-07/KmsKeyId
+      Type: String
+      Value: 'null'
+      Description: KMS key ID for SNS topic encryption (leave empty to disable encryption)
+  FMI07RequiredKmsKeyIdsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-07/RequiredKmsKeyIds
+      Type: String
+      Value: 'null'
+      Description: Comma-separated list of required KMS key IDs for knowledge base encryption (leave empty to accept any customer-managed key)
+  FMI08KmsKeyIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-08/KmsKeyId
+      Type: String
+      Value: 'null'
+      Description: KMS key ID for SNS topic encryption (leave empty to disable encryption)
+  FMI08RequiredKmsKeyIdsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-08/RequiredKmsKeyIds
+      Type: String
+      Value: 'null'
+      Description: Comma-separated list of required KMS key IDs for guardrail encryption (leave empty to accept any customer-managed key)
+  
+  FMI15KmsKeyIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-19/KmsKeyId
+      Type: String
+      Value: 'null'
+      Description: KMS key ID for SNS topic encryption (leave empty to disable encryption)
+  
+  FMI14AlarmThresholdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-18/AlarmThreshold
+      Type: String
+      Value: '1'
+      Description: Threshold value for CloudWatch alarms
+  
+  FMI14MetricNamespaceParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-18/MetricNamespace
+      Type: String
+      Value: 'Bedrock/Guardrails'
+      Description: CloudWatch metric namespace
+  
+  FMI14AlarmNamePrefixParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-18/AlarmNamePrefix
+      Type: String
+      Value: 'BedrockGuardrail'
+      Description: Prefix for CloudWatch alarm names
+    
+  PrivateSubnetIdsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/PrivateSubnetIds
+      Type: String
+      Value: 'null'
+      Description: List of private subnet IDs for Lambda functions (leave empty to
+        disable VPC)
+  EndpointVpcIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-09/EndpointVpcId
+      Type: String
+      Value: 'null'
+      Description: Default VPC ID for creating endpoints
+  AllowedRegionsParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/rag-01/AllowedRegions
+      Type: String
+      Value: 'null'
+      Description: Comma-separated list of allowed AWS regions for data sources
+  ExistingLoggingRoleArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/fmi-04/ExistingLoggingRoleArn
+      Type: String
+      Value: 'null'
+      Description: ARN of existing IAM role for Bedrock logging (optional)
+  RequiredKmsKeyIdParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/rag-02/RequiredKmsKeyId
+      Type: String
+      Value: 'null'
+      Description: KMS key ARN required for vector database encryption. If empty,
+        any customer-managed key is acceptable.
+  LambdaCodePrefixParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /bedrock-configrules/global/LambdaCodePrefix
+      Type: String
+      Value: 'lambda-functions'
+      Description: Prefix for Lambda code files in S3 bucket
+Outputs:
+  ParameterCount:
+    Description: Total number of SSM parameters created
+    Value: '120'
+  ParameterPrefix:
+    Description: Parameter prefix used
+    Value: /bedrock-configrules/

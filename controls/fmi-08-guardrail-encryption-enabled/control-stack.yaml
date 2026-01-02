@@ -1,0 +1,383 @@
+################################################################################
+# Bedrock Security Control - FMI-08 Guardrails KMS
+#
+# This unified stack contains all resources for the FMI-08 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+Parameters:
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation retries
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Number of retry attempts for remediation
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  GuardrailChangeNotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/GuardrailChangeNotificationTopicArn
+    Description: SNS topic ARN for receiving guardrail change notifications
+
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+    
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: S3 bucket name for CloudFormation templates
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for Config rules
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (leave empty to disable VPC)
+    
+  TargetOuId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TargetOuId
+    Description: Organization Unit ID where the SCP should be applied
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+  
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+    
+  KmsKeyId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-08/KmsKeyId
+    Description: KMS key ID for guardrail encryption
+    
+  RequiredKmsKeyIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-08/RequiredKmsKeyIds
+    Description: Comma-separated list of required KMS key IDs for guardrail encryption
+    
+
+Conditions:
+  HasKmsKeyId: !Not [!Equals [!Ref KmsKeyId, "null"]]
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  BedrockGuardrailsKmsCheckFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BedrockGuardrailsKmsCheckFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockGuardrailsKmsCheckAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:ListGuardrails'
+                  - 'bedrock:GetGuardrail'
+                Resource: '*'
+        - PolicyName: ConfigRulesAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'config:PutEvaluations'
+                Resource: "*"
+
+  BedrockGuardrailsKmsCheckFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi08-GuardrailsKmsCheck"
+      Handler: lambda-function.handler
+      Role: !GetAtt BedrockGuardrailsKmsCheckFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      ReservedConcurrentExecutions: 10
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-08-guardrails-kms-check.zip"
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  BedrockGuardrailsKmsRemediationFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BedrockGuardrailsKmsRemediationFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: BedrockGuardrailsKmsRemediationAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:ListGuardrails'
+                  - 'bedrock:GetGuardrail'
+                  - 'bedrock:UpdateGuardrail'
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:guardrail/*'
+              - Effect: Allow
+                Action:
+                  - 'kms:DescribeKey'
+                  - 'kms:CreateGrant'
+                  - 'kms:Decrypt'
+                  - 'kms:GenerateDataKey'
+                Resource: !If [HasKmsKeyId, !Sub "arn:aws:kms:*:*:key/${KmsKeyId}", '*']
+
+  BedrockGuardrailsKmsRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi08-GuardrailsKmsRemediation"
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt BedrockGuardrailsKmsRemediationFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      ReservedConcurrentExecutions: 5
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-08-guardrails-kms-remediation.zip"
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  RemediationAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke remediation Lambda"
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt BedrockGuardrailsKmsRemediationFunction.Arn
+              - Effect: Allow
+                Action:
+                  - bedrock:ListGuardrails
+                Resource: "*"
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  BedrockGuardrailsKmsRemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "BedrockGuardrailsKmsRemediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: Reports on specific Amazon Bedrock guardrail resource without proper KMS encryption
+        assumeRole: !GetAtt RemediationAutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+                type: String
+                description: The ARN of the role that allows Automation to perform the actions on your behalf
+                default: !GetAtt RemediationAutomationRole.Arn
+          ResourceId:
+                type: String
+                description: The resource ID of the specific guardrail to remediate
+          KmsKeyId:
+                type: String
+                description: KMS key ID to use for encryption
+                default: !Ref KmsKeyId
+        mainSteps:
+          - name: CheckBedrockGuardrailKmsEncryption
+            action: aws:invokeLambdaFunction
+            timeoutSeconds: 120
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref BedrockGuardrailsKmsRemediationFunction
+              Payload: !Sub |
+                {
+                  "guardrailId": "{{ResourceId}}",
+                  "kmsKeyId": "{{KmsKeyId}}"
+                }
+            outputs:
+              - Name: Response
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI08Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BedrockGuardrailsKmsCheckFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI08Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI08Permission
+    Properties:
+      ConfigRuleName: !Sub "fmi-08-guardrails-kms"
+      Description: "Checks if KMS encryption is configured for individual Bedrock guardrail resources - Control ID: FMI-08"
+      InputParameters: !Sub |
+        {
+          "requiredKmsKeyIds": "${RequiredKmsKeyIds}"
+        }
+      Scope:
+        ComplianceResourceTypes: 
+          - "AWS::Bedrock::Guardrail"
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ConfigurationItemChangeNotification
+          - EventSource: aws.config
+            MessageType: OversizedConfigurationItemChangeNotification
+        SourceIdentifier: !GetAtt BedrockGuardrailsKmsCheckFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  FMI08Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref FMI08Check
+      TargetId: !Ref BedrockGuardrailsKmsRemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt RemediationAutomationRole.Arn
+        ResourceId:
+          ResourceValue:
+            Value: RESOURCE_ID
+        KmsKeyId:
+          StaticValue:
+            Values:
+              - !Ref KmsKeyId
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Guardrails KMS Check Lambda Function
+    Value: !GetAtt BedrockGuardrailsKmsCheckFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock Guardrails KMS Remediation Lambda Function
+    Value: !GetAtt BedrockGuardrailsKmsRemediationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Guardrails KMS Remediation
+    Value: !Ref BedrockGuardrailsKmsRemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for Guardrails KMS
+    Value: !GetAtt RemediationAutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Guardrails KMS
+    Value: !Ref FMI08Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

@@ -1,0 +1,390 @@
+################################################################################
+# Bedrock Security Control - FMI-06 Model Logs KMS
+#
+# This unified stack contains all resources for the FMI-06 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+Parameters:
+
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation retries
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for Config rules
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+    
+  TargetOuId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TargetOuId
+    Description: Organization Unit ID where the SCP should be applied
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (leave empty to disable VPC)
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Number of retry attempts for remediation
+    
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: S3 bucket name for CloudFormation templates
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  GuardrailChangeNotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/GuardrailChangeNotificationTopicArn
+    Description: SNS topic ARN for receiving guardrail change notifications
+
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  KmsKeyId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-06/KmsKeyId
+    Description: KMS key ID for model logs encryption
+    
+  RequiredKmsKeyIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-06/RequiredKmsKeyIds
+    Description: Comma-separated list of required KMS key IDs for model logs encryption
+    
+  ExistingLoggingRoleArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-06/ExistingLoggingRoleArn
+    Description: ARN of existing IAM role for Bedrock logging (optional)
+    
+
+Conditions:
+  HasKmsKeyId: !Not [!Equals [!Ref KmsKeyId, "null"]]
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+  UseExistingRole: !Not [!Equals [!Ref ExistingLoggingRoleArn, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  BedrockModelLogsKmsCheckFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BedrockModelLogsKmsCheckFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockModelLogsKmsCheckAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:GetModelInvocationLoggingConfiguration'
+                  - 'logs:DescribeLogGroups'
+                  - 's3:GetEncryptionConfiguration'
+                Resource: '*'
+        - PolicyName: ConfigRulesAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'config:PutEvaluations'
+                Resource: "*"
+
+  BedrockModelLogsKmsCheckFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi06-ModelLogsKmsCheck"
+      Handler: lambda-function.handler
+      Role: !GetAtt BedrockModelLogsKmsCheckFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      ReservedConcurrentExecutions: 10
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-06-model-logs-kms-check.zip"
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  BedrockModelLogsKmsRemediationFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BedrockModelLogsKmsRemediationFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: BedrockModelLogsKmsRemediationAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:GetModelInvocationLoggingConfiguration'
+                  - 'bedrock:PutModelInvocationLoggingConfiguration'
+                  - 'logs:DescribeLogGroups'
+                  - 'logs:AssociateKmsKey'
+                  - 's3:CreateBucket'
+                  - 's3:PutEncryptionConfiguration'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'kms:DescribeKey'
+                  - 'kms:GenerateDataKey'
+                  - 'kms:Encrypt'
+                  - 'kms:Decrypt'
+                Resource: !If [HasKmsKeyId, !Sub "arn:aws:kms:*:*:key/${KmsKeyId}", '*']
+              - Effect: Allow
+                Action:
+                  - 'iam:PassRole'
+                Resource: !If 
+                  - UseExistingRole
+                  - !Ref ExistingLoggingRoleArn
+                  - 'arn:aws:iam::*:role/*Bedrock*Logging*'
+                Condition:
+                  StringEquals:
+                    'iam:PassedToService': 'bedrock.amazonaws.com'
+
+  BedrockModelLogsKmsRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi06-ModelLogsKmsRemediation"
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt BedrockModelLogsKmsRemediationFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      ReservedConcurrentExecutions: 5
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-06-model-logs-kms-remediation.zip"
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  RemediationAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke remediation Lambda"
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt BedrockModelLogsKmsRemediationFunction.Arn
+              - Effect: Allow
+                Action:
+                  - bedrock:GetModelInvocationLoggingConfiguration
+                Resource: "*"
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  BedrockModelLogsKmsRemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "BedrockModelLogsKmsRemediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: Configures KMS encryption for Amazon Bedrock model invocation logs
+        assumeRole: !GetAtt RemediationAutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+                type: String
+                description: The ARN of the role that allows Automation to perform the actions on your behalf
+                default: !GetAtt RemediationAutomationRole.Arn
+          KmsKeyId:
+                type: String
+                description: KMS key ID to use for encryption
+                default: !Ref KmsKeyId
+        mainSteps:
+          - name: ConfigureBedrockModelLogsKmsEncryption
+            action: aws:invokeLambdaFunction
+            timeoutSeconds: 120
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref BedrockModelLogsKmsRemediationFunction
+              Payload: !Sub |
+                {
+                  "kmsKeyId": "{{KmsKeyId}}"
+                }
+            outputs:
+              - Name: Response
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI06Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BedrockModelLogsKmsCheckFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI06Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI06Permission
+    Properties:
+      ConfigRuleName: !Sub "fmi-06-model-logs-kms"
+      Description: "Checks if KMS encryption is configured for Bedrock model invocation logs - Control ID: FMI-06"
+      InputParameters: !Sub |
+        {
+          "requiredKmsKeyIds": "${RequiredKmsKeyIds}"
+        }
+      Scope:
+        ComplianceResourceTypes: [] # Empty list for account-level evaluation
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+            MessageType: ScheduledNotification
+        SourceIdentifier: !GetAtt BedrockModelLogsKmsCheckFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  FMI06Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref FMI06Check
+      TargetId: !Ref BedrockModelLogsKmsRemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt RemediationAutomationRole.Arn
+        KmsKeyId:
+          StaticValue:
+            Values:
+              - !Ref KmsKeyId
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Model Logs KMS Check Lambda Function
+    Value: !GetAtt BedrockModelLogsKmsCheckFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock Model Logs KMS Remediation Lambda Function
+    Value: !GetAtt BedrockModelLogsKmsRemediationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Model Logs KMS Remediation
+    Value: !Ref BedrockModelLogsKmsRemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for Model Logs KMS
+    Value: !GetAtt RemediationAutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Model Logs KMS
+    Value: !Ref FMI06Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# AWS deployment artifacts
+packaged-template.yaml
+.aws-sam/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Kiro
+.kiro/
+
+# Logs
+*.log
+
+# Build artifacts
+*.zip
+

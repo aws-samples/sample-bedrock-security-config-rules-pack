@@ -1,0 +1,367 @@
+################################################################################
+# Bedrock Security Control - FMI-10 VPC Endpoint Policy Restricted
+#
+# This unified stack contains all resources for the FMI-10 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+Parameters:
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (leave empty to disable VPC)
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+    
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: S3 bucket name for CloudFormation templates
+    
+  TargetOuId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TargetOuId
+    Description: Organization Unit ID where the SCP should be applied
+    
+  GuardrailChangeNotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/GuardrailChangeNotificationTopicArn
+    Description: SNS topic ARN for receiving guardrail change notifications
+
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+ 
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for Config rules
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation retries
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Number of retry attempts for remediation
+    
+  VpcEndpointPolicyConditionKey:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-10/VpcEndpointPolicyConditionKey
+    Description: IAM condition key for VPC endpoint policy
+    
+  VpcEndpointPolicyConditionValues:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-10/VpcEndpointPolicyConditionValues
+    Description: Comma-separated values for the condition
+    
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  BedrockVpcEndpointPolicyCheckRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BedrockVpcEndpointPolicyCheckRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: VpcEndpointAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeVpcEndpoints
+                Resource: '*'
+        - PolicyName: ConfigAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                Resource: '*'
+
+  BedrockVpcEndpointPolicyCheckFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi10-VpcEndpointPolicyRestrictedCheck"
+      Handler: lambda-function.handler
+      Role: !GetAtt BedrockVpcEndpointPolicyCheckRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      ReservedConcurrentExecutions: 10
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-10-vpc-endpoint-policy-restricted-check.zip"
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  VpcEndpointPolicyRemediationFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "VpcEndpointPolicyRemediationFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: VpcEndpointAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeVpcEndpoints
+                  - ec2:ModifyVpcEndpoint
+                Resource: '*'
+        - PolicyName: STSAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: '*'
+
+  VpcEndpointPolicyRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi10-VpcEndpointPolicyRestrictedRemediation"
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt VpcEndpointPolicyRemediationFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 300
+      ReservedConcurrentExecutions: 5
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-10-vpc-endpoint-policy-restricted-remediation.zip"
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  RemediationAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke remediation Lambda"
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt VpcEndpointPolicyRemediationFunction.Arn
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeVpcEndpoints
+                Resource: "*"
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  VpcEndpointPolicyRemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "VpcEndpointPolicyRemediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: Remediate overly permissive VPC endpoint policies for Bedrock
+        assumeRole: !GetAtt RemediationAutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+                type: String
+                description: The ARN of the role that allows Automation to perform the actions on your behalf
+                default: !GetAtt RemediationAutomationRole.Arn
+          PolicyConditionKey:
+                type: String
+                description: IAM condition key for VPC endpoint policy
+                default: !Ref VpcEndpointPolicyConditionKey
+          PolicyConditionValues:
+                type: String
+                description: Comma-separated values for the condition
+                default: !Ref VpcEndpointPolicyConditionValues
+        mainSteps:
+          - name: RemediateVpcEndpointPolicy
+            action: aws:invokeLambdaFunction
+            timeoutSeconds: 300
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref VpcEndpointPolicyRemediationFunction
+              Payload: !Sub |
+                {
+                  "PolicyConditionKey": "{{PolicyConditionKey}}",
+                  "PolicyConditionValues": "{{PolicyConditionValues}}"
+                }
+            outputs:
+              - Name: Response
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI10Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BedrockVpcEndpointPolicyCheckFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI10Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI10Permission
+    Properties:
+      ConfigRuleName: !Sub "fmi-10-vpc-endpoint-policy-restricted"
+      Description: "Checks if VPC endpoint policies are properly restricted for Bedrock - Control ID: FMI-10"
+      InputParameters: !Sub |
+        {
+          "PolicyConditionKey": "${VpcEndpointPolicyConditionKey}",
+          "PolicyConditionValues": "${VpcEndpointPolicyConditionValues}"
+        }
+      Scope:
+        ComplianceResourceTypes: [] # Empty list for account-level evaluation
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+            MessageType: ScheduledNotification
+        SourceIdentifier: !GetAtt BedrockVpcEndpointPolicyCheckFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  FMI10Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref FMI10Check
+      TargetId: !Ref VpcEndpointPolicyRemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt RemediationAutomationRole.Arn
+        PolicyConditionKey:
+          StaticValue:
+            Values:
+              - !Ref VpcEndpointPolicyConditionKey
+        PolicyConditionValues:
+          StaticValue:
+            Values:
+              - !Ref VpcEndpointPolicyConditionValues
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock VPC Endpoint Policy Check Lambda Function
+    Value: !GetAtt BedrockVpcEndpointPolicyCheckFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock VPC Endpoint Policy Remediation Lambda Function
+    Value: !GetAtt VpcEndpointPolicyRemediationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for VPC Endpoint Policy Remediation
+    Value: !Ref VpcEndpointPolicyRemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for VPC Endpoint Policy
+    Value: !GetAtt RemediationAutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for VPC Endpoint Policy
+    Value: !Ref FMI10Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

@@ -1,0 +1,41 @@
+# Development dependencies for AWS Bedrock Security Config Rules Pack
+
+# AWS SDK
+boto3>=1.40.0
+botocore>=1.40.0
+
+# Testing framework
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+moto>=4.2.0  # AWS service mocking for tests
+
+# Code quality
+black>=23.0.0  # Code formatting
+flake8>=6.0.0  # Linting
+isort>=5.12.0  # Import sorting
+mypy>=1.0.0    # Type checking
+
+# CloudFormation tools
+cfn-lint>=0.83.0  # CloudFormation linting
+cfn-flip>=1.3.0   # YAML/JSON conversion
+
+# Documentation
+mkdocs>=1.5.0
+mkdocs-material>=9.0.0
+mkdocs-mermaid2-plugin>=1.1.0
+
+# Development utilities
+pre-commit>=3.0.0  # Git hooks
+bandit>=1.7.0      # Security linting
+safety>=2.3.0      # Dependency vulnerability scanning
+
+# JSON/YAML processing
+pyyaml>=6.0
+jsonschema>=4.17.0
+
+# AWS CLI (for local testing)
+awscli>=2.13.0
+
+# Local development server (optional)
+localstack>=3.0.0  # Local AWS services for testing

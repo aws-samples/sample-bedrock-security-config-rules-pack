@@ -1,0 +1,429 @@
+################################################################################
+# Bedrock Security Control - FMI-01 IAM Wildcard Permissions Prohibited
+#
+# This unified stack contains all resources for the FMI-01 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+Parameters:
+  TargetOuId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TargetOuId
+    Description: Organization Unit ID where the SCP should be applied
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  GuardrailChangeNotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/GuardrailChangeNotificationTopicArn
+    Description: SNS topic ARN for receiving guardrail change notifications
+  
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation retries
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for Config rules
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (leave empty to disable VPC)
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Number of retry attempts for remediation
+    
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: S3 bucket name for CloudFormation templates
+    
+
+  FMI02RolePathFilter:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-01/RolePathFilter
+    Description: Optional IAM path prefix to filter roles for evaluation
+    
+  FMI02RoleTagFilter:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-01/RoleTagFilter
+    Description: Optional tag filter for roles (format key=value)
+    
+  MaxWildcardActions:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-01/MaxWildcardActions
+    Description: Maximum number of wildcard actions allowed in IAM policies
+    
+  AllowedWildcardActions:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-01/AllowedWildcardActions
+    Description: Comma-separated list of allowed wildcard actions
+    
+  ProhibitedActions:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-01/ProhibitedActions
+    Description: Comma-separated list of prohibited actions
+    
+  RequireResourceRestrictions:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-01/RequireResourceRestrictions
+    Description: Whether to require resource-level restrictions in policies
+    
+  AllowedActions:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-01/AllowedActions
+    Description: Comma-separated list of allowed Bedrock actions
+    
+  RemediationActions:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-01/RemediationActions
+    Description: Comma-separated list of remediation actions to perform
+    
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  BedrockWildcardPermissionsProhibitedCheckExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BedrockWildcardPermissionsProhibitedCheckRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockWildcardPermissionsProhibitedCheckPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:ListRoles
+                  - iam:ListUsers
+                  - iam:ListGroups
+                  - iam:ListRolePolicies
+                  - iam:ListUserPolicies
+                  - iam:ListGroupPolicies
+                  - iam:GetRolePolicy
+                  - iam:GetUserPolicy
+                  - iam:GetGroupPolicy
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListAttachedUserPolicies
+                  - iam:ListAttachedGroupPolicies
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:GetRole
+                  - iam:ListRoleTags
+                  - sts:GetCallerIdentity
+                  - config:PutEvaluations
+                Resource: '*'
+
+  BedrockWildcardPermissionsProhibitedCheckFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi01-BedrockWildcardPermissionsProhibitedCheck"
+      Runtime: python3.9
+      Handler: lambda-function.handler
+      Role: !GetAtt BedrockWildcardPermissionsProhibitedCheckExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 10
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Ref SecurityGroupIds
+          SubnetIds: !Ref PrivateSubnetIds
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-01-bedrock-wildcard-permissions-prohibited-check.zip"
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  BedrockWildcardPermissionsProhibitedRemediationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BedrockWildcardPermissionsProhibitedRemediationRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockWildcardPermissionsProhibitedRemediationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:GetUser
+                  - iam:GetGroup
+                  - iam:GetRolePolicy
+                  - iam:GetUserPolicy
+                  - iam:GetGroupPolicy
+                  - iam:PutRolePolicy
+                  - iam:PutUserPolicy
+                  - iam:PutGroupPolicy
+                  - iam:ListRolePolicies
+                  - iam:ListUserPolicies
+                  - iam:ListGroupPolicies
+                Resource: '*'
+
+  BedrockWildcardPermissionsProhibitedRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi01-BedrockWildcardPermissionsProhibitedRemediation"
+      Runtime: python3.9
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt BedrockWildcardPermissionsProhibitedRemediationExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      ReservedConcurrentExecutions: 5
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Ref SecurityGroupIds
+          SubnetIds: !Ref PrivateSubnetIds
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-01-bedrock-wildcard-permissions-prohibited-remediation.zip"
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  RemediationAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "BedrockWildcardPermissionsProhibitedRemediationAutomationRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ssm.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SSMAutomationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt BedrockWildcardPermissionsProhibitedRemediationFunction.Arn
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  BedrockWildcardPermissionsProhibitedRemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Name: !Sub "BedrockWildcardPermissionsProhibitedRemediation"
+      Content:
+        schemaVersion: '0.3'
+        description: 'Remediate IAM policies that violate wildcard permissions prohibited principles for Bedrock'
+        assumeRole: !GetAtt RemediationAutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            description: The ARN of the role that allows Automation to perform the actions on your behalf
+            default: !GetAtt RemediationAutomationRole.Arn
+          EntityType:
+            type: String
+            description: 'Type of IAM entity (role, user, or group)'
+            allowedValues:
+              - role
+              - user
+              - group
+          EntityName:
+            type: String
+            description: 'Name of the IAM entity to remediate'
+
+          RemediationActions:
+            type: String
+            description: 'Comma-separated list of remediation actions to perform'
+            default: !Ref RemediationActions
+          AllowedActions:
+            type: String
+            description: 'Comma-separated list of allowed Bedrock actions'
+            default: !Ref AllowedActions
+          ProhibitedActions:
+            type: String
+            description: 'Comma-separated list of prohibited actions to remove'
+            default: !Ref ProhibitedActions
+        mainSteps:
+          - name: RemediateWildcardPermissions
+            action: 'aws:invokeLambdaFunction'
+            description: 'Invoke Lambda function to remediate IAM policy wildcard permissions prohibited violations'
+            inputs:
+              FunctionName: !Ref BedrockWildcardPermissionsProhibitedRemediationFunction
+              Payload: |
+                {
+                  "entityType": "{{ EntityType }}",
+                  "entityName": "{{ EntityName }}",
+                  "remediationActions": "{{ RemediationActions }}",
+                  "allowedActions": "{{ AllowedActions }}",
+                  "prohibitedActions": "{{ ProhibitedActions }}"
+                }
+            outputs:
+              - Name: RemediationResult
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI02Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BedrockWildcardPermissionsProhibitedCheckFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI02Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI02Permission
+    Properties:
+      ConfigRuleName: !Sub "fmi-01-bedrock-bedrock-wildcard-permissions-prohibited"
+      Description: "Checks if IAM policies granting Bedrock permissions follow wildcard permissions prohibited principles - Control ID: FMI-01"
+      InputParameters:
+        maxWildcardActions: !Ref MaxWildcardActions
+        allowedWildcardActions: !Ref AllowedWildcardActions
+        prohibitedActions: !Ref ProhibitedActions
+        requireResourceRestrictions: !Ref RequireResourceRestrictions
+        rolePathFilter: !Ref FMI02RolePathFilter
+        roleTagFilter: !Ref FMI02RoleTagFilter
+      Scope:
+        ComplianceResourceTypes: [] # Empty list for account-level evaluation
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+            MessageType: ScheduledNotification
+        SourceIdentifier: !GetAtt BedrockWildcardPermissionsProhibitedCheckFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  FMI02Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref FMI02Check
+      TargetId: !Ref BedrockWildcardPermissionsProhibitedRemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt RemediationAutomationRole.Arn
+        EntityType:
+          StaticValue:
+            Values:
+              - role
+        EntityName:
+          ResourceValue:
+            Value: RESOURCE_ID
+
+        RemediationActions:
+          StaticValue:
+            Values:
+              - !Ref RemediationActions
+        AllowedActions:
+          StaticValue:
+            Values:
+              - !Ref AllowedActions
+        ProhibitedActions:
+          StaticValue:
+            Values:
+              - !Ref ProhibitedActions
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock IAM Wildcard Permissions Prohibited Check Lambda Function
+    Value: !GetAtt BedrockWildcardPermissionsProhibitedCheckFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock IAM Wildcard Permissions Prohibited Remediation Lambda Function
+    Value: !GetAtt BedrockWildcardPermissionsProhibitedRemediationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Wildcard Permissions Prohibited Remediation
+    Value: !Ref BedrockWildcardPermissionsProhibitedRemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the SSM Automation Role for Wildcard Permissions Prohibited Remediation
+    Value: !GetAtt RemediationAutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for IAM Wildcard Permissions Prohibited
+    Value: !Ref FMI02Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

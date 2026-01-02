@@ -1,0 +1,440 @@
+################################################################################
+# Bedrock Security Control - FMI-04 Model Invocation Logging
+#
+# This unified stack contains all resources for the FMI-04 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+Parameters:
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (leave empty to disable VPC)
+    
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: S3 bucket name for CloudFormation templates
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency for Config rule evaluations
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  GuardrailChangeNotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/GuardrailChangeNotificationTopicArn
+    Description: SNS topic ARN for receiving guardrail change notifications
+
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (leave empty to disable VPC)
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: Seconds to wait between remediation retries
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (leave empty to disable VPC)
+      
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: Number of retry attempts for remediation
+    
+  NotificationTopicArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/NotificationTopicArn
+    Description: General notification topic ARN
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: Enable automatic remediation for Config rules
+    
+    
+  ExistingLoggingRoleArn:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-04/ExistingLoggingRoleArn
+    Description: ARN of existing IAM role for Bedrock logging (optional)
+    
+  LoggingDestination:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-04/LoggingDestination
+    Description: Destination for model invocation logs (CloudWatch, S3, or Both)
+    
+  LogGroupRetentionDays:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-04/LogGroupRetentionDays
+    Description: Number of days to retain logs in CloudWatch Logs
+    
+  InvocationLogsS3BucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-04/InvocationLogsS3BucketName
+    Description: Name of the S3 bucket to store model invocation logs
+    
+  InvocationLogsLogGroupName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-04/InvocationLogsLogGroupName
+    Description: Name of the log group to store model invocation logs
+    
+
+Conditions:
+  UseExistingRole: !Not [!Equals [!Ref ExistingLoggingRoleArn, "null"]]
+  CreateLoggingRole: !Equals [!Ref ExistingLoggingRoleArn, "null"]
+  UseCloudWatchLogs: !Or [!Equals [!Ref LoggingDestination, 'CloudWatch'], !Equals [!Ref LoggingDestination, 'Both']]
+  UseS3Logs: !Or [!Equals [!Ref LoggingDestination, 'S3'], !Equals [!Ref LoggingDestination, 'Both']]
+  EmptyLogGroupName: !Equals [!Ref InvocationLogsLogGroupName, "null"]
+  EmptyS3BucketName: !Equals [!Ref InvocationLogsS3BucketName, "null"]
+  EmptyLogRetentionDays: !Equals [!Ref LogGroupRetentionDays, "null"]
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  ModelInvocationLogsFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "ModelInvocationLogsFunctionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'bedrock:*'
+                Resource: '*'
+        - PolicyName: ConfigRulesAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'config:PutEvaluations'
+                Resource: "*"
+
+  ModelInvocationLogsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi04-ModelInvocationLoggingCheck"
+      Handler: lambda-function.handler
+      Role: !GetAtt ModelInvocationLogsFunctionRole.Arn
+      Runtime: python3.9
+      Timeout: 30
+      ReservedConcurrentExecutions: 10
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-04-model-invocation-logging-check.zip"
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  ModelInvocationLogsRemediationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "ModelInvocationLogsRemediationRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: !Sub "ModelInvocationLogsRemediationPolicy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:GetModelInvocationLoggingConfiguration
+                  - bedrock:PutModelInvocationLoggingConfiguration
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:PutRetentionPolicy
+                  - logs:DescribeLogGroups
+                  - logs:TagResource
+                Resource: 
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*"
+              - Effect: Allow
+                Action:
+                 - s3:CreateBucket
+                 - s3:PutBucketPublicAccessBlock
+                 - s3:CreateBucket
+                 - s3:ListBucket
+                 - s3:GetBucketPolicy
+                 - s3:PutEncryptionConfiguration
+                 - s3:GetObject
+                 - s3:PutBucketTagging
+                 - s3:PutBucketPolicy
+                 - s3:PutBucketVersioning
+                Resource:
+                   - !If [EmptyS3BucketName, !Sub "arn:aws:s3:::model-invocation-logs-${AWS::AccountId}", !Sub "arn:aws:s3:::${InvocationLogsS3BucketName}"]
+              - Effect: Allow
+                Action:
+                  - iam:GetRole
+                  - iam:TagRole
+                  - iam:PassRole
+                  - iam:PutRolePolicy
+                Resource: !If 
+                  - UseExistingRole
+                  - !Ref ExistingLoggingRoleArn
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/BedrockLoggingRole"
+        - PolicyName: !Sub "BedrockLoggingRole-Policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                Resource: !If 
+                  - UseExistingRole
+                  - !Ref ExistingLoggingRoleArn
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/BedrockLoggingRole"
+
+  ModelInvocationLogsRemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi04-ModelInvocationLoggingRemediation"
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt ModelInvocationLogsRemediationRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      ReservedConcurrentExecutions: 5
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-04-model-invocation-logging-remediation.zip"
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  RemediationAutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke remediation Lambda"
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt ModelInvocationLogsRemediationFunction.Arn
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  ModelInvocationLogsRemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "ModelInvocationLogsRemediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: Remediation for Bedrock model invocation logs
+        assumeRole: !GetAtt RemediationAutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+                type: String
+                description: The ARN of the role that allows Automation to perform the actions on your behalf
+                default: !GetAtt RemediationAutomationRole.Arn
+          LoggingDestination:
+                type: String
+                description: Destination for model invocation logs
+                default: !Ref LoggingDestination
+          LogGroupRetentionDays:
+                type: String
+                description: Number of days to retain logs in CloudWatch Logs
+                default: !Ref LogGroupRetentionDays
+          InvocationLogsS3BucketName:
+                type: String
+                description: Name of the S3 bucket to store model invocation logs
+                default: !Ref InvocationLogsS3BucketName
+          InvocationLogsLogGroupName:
+                type: String
+                description: Name of the log group to store model invocation logs
+                default: !Ref InvocationLogsLogGroupName
+        mainSteps:
+          - name: InvokeRemediationFunction
+            action: aws:invokeLambdaFunction
+            timeoutSeconds: 120
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref ModelInvocationLogsRemediationFunction
+              Payload: !Sub 
+                - |
+                  {
+                    "loggingDestination": "{{LoggingDestination}}",
+                    "logGroupRetentionDays": "{{LogGroupRetentionDays}}",
+                    "invocationLogsS3BucketName": "{{InvocationLogsS3BucketName}}",
+                    "invocationLogsLogGroupName": "{{InvocationLogsLogGroupName}}",
+                    "loggingRoleName": "${LoggingRoleName}",
+                    "logGroupName": "${LogGroupName}",
+                    "s3BucketName": "${S3BucketName}",
+                    "logRetentionDays": "${LogRetentionDays}"
+                  }
+                - LoggingRoleName: !If [UseExistingRole, !Select [1, !Split ["/", !Select [5, !Split [":", !Ref ExistingLoggingRoleArn]]]], !Sub 'BedrockLoggingRole']
+                  LogGroupName: !If [UseCloudWatchLogs, !If [EmptyLogGroupName, !Sub '/aws/bedrock/ModelInvocationLogs', !Ref InvocationLogsLogGroupName], ""]
+                  S3BucketName: !If [UseS3Logs, !If [EmptyS3BucketName, !Sub 'model-invocation-logs-${AWS::AccountId}', !Ref InvocationLogsS3BucketName], ""]
+                  LogRetentionDays: !If [EmptyLogRetentionDays, "30", !Ref LogGroupRetentionDays]
+            outputs:
+              - Name: Response
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  FMI04Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ModelInvocationLogsFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  FMI04Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: FMI04Permission
+    Properties:
+      ConfigRuleName: !Sub "fmi-04-model-invocation-logging"
+      Description: "Checks if Bedrock model invocation logging is enabled - Control ID: FMI-04"
+      Scope:
+        ComplianceResourceTypes: [] # Empty list for account-level evaluation
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+            MessageType: ScheduledNotification
+        SourceIdentifier: !GetAtt ModelInvocationLogsFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  FMI04Remediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref FMI04Check
+      TargetId: !Ref ModelInvocationLogsRemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt RemediationAutomationRole.Arn
+        LoggingDestination:
+          StaticValue:
+            Values:
+              - !Ref LoggingDestination
+        LogGroupRetentionDays:
+          StaticValue:
+            Values:
+              - !Ref LogGroupRetentionDays
+        InvocationLogsS3BucketName:
+          StaticValue:
+            Values:
+              - !Ref InvocationLogsS3BucketName
+        InvocationLogsLogGroupName:
+          StaticValue:
+            Values:
+              - !Ref InvocationLogsLogGroupName
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Model Invocation Logging Check Lambda Function
+    Value: !GetAtt ModelInvocationLogsFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock Model Invocation Logging Remediation Lambda Function
+    Value: !GetAtt ModelInvocationLogsRemediationFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Model Invocation Logging Remediation
+    Value: !Ref ModelInvocationLogsRemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for Model Invocation Logging
+    Value: !GetAtt RemediationAutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Model Invocation Logging
+    Value: !Ref FMI04Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

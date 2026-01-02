@@ -1,0 +1,485 @@
+################################################################################
+# Bedrock Security Control - FMI-14 Guardrail Sensitive Information Policy
+#
+# This unified stack contains all resources for the FMI-14 control:
+# - Check Lambda function and IAM role
+# - Remediation Lambda function and IAM role
+# - Config rule and remediation configuration
+# - SSM automation document and role
+################################################################################
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Bedrock Security Control - FMI-14 Guardrail Sensitive Information Policy'
+
+Parameters:
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: "S3 bucket name for CloudFormation templates"
+    
+  RemediationRetryAttempts:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetryAttempts
+    Description: "Number of retry attempts for remediation"
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: "Prefix for Lambda code files in S3 bucket"
+    
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: "VPC ID for Lambda functions (leave empty to disable VPC)"
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: "List of Security Group IDs for Lambda functions (leave empty to disable VPC)"
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: "Frequency for Config rule evaluations"
+    
+  RemediationRetrySeconds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/RemediationRetrySeconds
+    Description: "Seconds to wait between remediation retries"
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: "List of private subnet IDs for Lambda functions (leave empty to disable VPC)"
+    
+  EnableAutoRemediation:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/EnableAutoRemediation
+    Description: "Enable automatic remediation for Config rules"
+
+  # Control-specific parameters
+  GuardrailName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/GuardrailName
+    Description: 'Optional specific guardrail name to validate'
+  PIIEntities:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/PIIEntities
+    Description: 'Comma-separated list of PII entity types to validate'
+  PIIAction:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/PIIAction
+    Description: 'Action for PII entity violations (BLOCK, ANONYMIZE, or NONE)'
+  InputAction:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/InputAction
+    Description: 'Input action to validate (BLOCK, ANONYMIZE, or NONE)'
+  OutputAction:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/OutputAction
+    Description: 'Output action to validate (BLOCK, ANONYMIZE, or NONE)'
+  RegexPattern1:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/RegexPattern1
+    Description: 'First custom regex pattern to validate'
+  RegexPattern2:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/RegexPattern2
+    Description: 'Second custom regex pattern to validate'
+  RegexPattern3:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/RegexPattern3
+    Description: 'Third custom regex pattern to validate'
+  RegexPattern4:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/RegexPattern4
+    Description: 'Fourth custom regex pattern to validate'
+  RegexPattern5:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/RegexPattern5
+    Description: 'Fifth custom regex pattern to validate'
+  RequiredTags:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/fmi-14/RequiredTags
+    Description: 'Optional required tags in key=value,key2=value2 format'
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-14-guardrail-sensitive-info-check-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: BedrockGuardrailSensitiveInfoCheckPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:ListGuardrails
+                  - bedrock:GetGuardrail
+                  - bedrock:ListTagsForResource
+                  - bedrock:GetGuardrailVersion
+                Resource: '*'
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi14-GuardrailPiiFiltersCheck"
+      Description: "FMI-14: Checks if Bedrock guardrails have proper sensitive information policy configuration"
+      Runtime: python3.9
+      Handler: lambda-function.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 256
+      ReservedConcurrentExecutions: 10
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-14-guardrail-pii-filters-check.zip"
+
+  # =========================================================================
+  # Remediation Lambda Function and Role
+  # =========================================================================
+  RemediationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-14-guardrail-sensitive-info-remed-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+               - lambda.amazonaws.com
+               - ssm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: BedrockGuardrailSensitiveInfoRemediationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListGuardrails
+                  - bedrock:GetGuardrail
+                  - bedrock:CreateGuardrail
+                  - bedrock:UpdateGuardrail
+                  - bedrock:ListTagsForResource
+                  - bedrock:TagResource
+                  - bedrock:UntagResource
+                Resource: '*'
+
+  RemediationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "fmi14-GuardrailPiiFiltersRemediation"
+      Description: "FMI-14: Creates or updates Bedrock guardrails with proper sensitive information policy configuration"
+      Runtime: python3.9
+      Handler: remediation-lambda-function.handler
+      Role: !GetAtt RemediationLambdaExecutionRole.Arn
+      Timeout: 900
+      MemorySize: 512
+      ReservedConcurrentExecutions: 5
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Split [",", !Ref SecurityGroupIds]
+          SubnetIds: !Split [",", !Ref PrivateSubnetIds]
+        - !Ref AWS::NoValue
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/fmi-14-guardrail-pii-filters-remediation.zip"
+
+  # =========================================================================
+  # SSM Automation Role for Remediation
+  # =========================================================================
+  AutomationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "fmi-14-guardrail-sensitive-info-auto-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Description: "Role for SSM Automation to invoke remediation Lambda"
+      Policies:
+        - PolicyName: AutomationExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt RemediationLambdaFunction.Arn
+
+  # =========================================================================
+  # SSM Automation Document for Remediation
+  # =========================================================================
+  RemediationDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "fmi-14-bedrock-guardrail-sensitive-info-remediation"
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Content:
+        schemaVersion: '0.3'
+        description: 'FMI-14: Remediation document for creating/updating Bedrock guardrail sensitive information policy'
+        assumeRole: !GetAtt AutomationRole.Arn
+        parameters:
+          AutomationAssumeRole:
+            type: String
+            description: The ARN of the role that allows Automation to perform the actions on your behalf
+            default: !GetAtt AutomationRole.Arn
+          ResourceId:
+            type: String
+            description: Account ID for account-level remediation
+          GuardrailName:
+            type: String
+            description: Optional specific guardrail name
+            default: !Ref GuardrailName
+          PIIEntities:
+            type: String
+            description: Comma-separated list of PII entity types (REQUIRED for remediation)
+            default: !Ref PIIEntities
+          PIIAction:
+            type: String
+            description: Action for PII entity violations
+            default: !Ref PIIAction
+          InputAction:
+            type: String
+            description: Input action to configure
+            default: !Ref InputAction
+          OutputAction:
+            type: String
+            description: Output action to configure
+            default: !Ref OutputAction
+          RegexPattern1:
+            type: String
+            description: First custom regex pattern
+            default: !Ref RegexPattern1
+          RegexPattern2:
+            type: String
+            description: Second custom regex pattern
+            default: !Ref RegexPattern2
+          RegexPattern3:
+            type: String
+            description: Third custom regex pattern
+            default: !Ref RegexPattern3
+          RegexPattern4:
+            type: String
+            description: Fourth custom regex pattern
+            default: !Ref RegexPattern4
+          RegexPattern5:
+            type: String
+            description: Fifth custom regex pattern
+            default: !Ref RegexPattern5
+          RequiredTags:
+            type: String
+            description: Required tags in key=value format
+            default: !Ref RequiredTags
+        mainSteps:
+          - name: InvokeLambdaFunction
+            action: 'aws:invokeLambdaFunction'
+            description: Invoke Lambda function to create/update guardrail sensitive information policy
+            timeoutSeconds: 900
+            maxAttempts: !Ref RemediationRetryAttempts
+            onFailure: Abort
+            inputs:
+              FunctionName: !Ref RemediationLambdaFunction
+              Payload: !Sub |
+                {
+                  "configRuleParameters": {
+                    "GuardrailName": "{{GuardrailName}}",
+                    "PIIEntities": "{{PIIEntities}}",
+                    "PIIAction": "{{PIIAction}}",
+                    "InputAction": "{{InputAction}}",
+                    "OutputAction": "{{OutputAction}}",
+                    "RegexPattern1": "{{RegexPattern1}}",
+                    "RegexPattern2": "{{RegexPattern2}}",
+                    "RegexPattern3": "{{RegexPattern3}}",
+                    "RegexPattern4": "{{RegexPattern4}}",
+                    "RegexPattern5": "{{RegexPattern5}}",
+                    "RequiredTags": "{{RequiredTags}}"
+                  },
+                  "accountId": "${AWS::AccountId}"
+                }
+            outputs:
+              - Name: Response
+                Selector: $.Payload
+                Type: String
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  GuardrailSensitiveInfoPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  GuardrailSensitiveInfoCheck:
+    Type: AWS::Config::ConfigRule
+    DependsOn: GuardrailSensitiveInfoPermission
+    Properties:
+      ConfigRuleName: !Sub "fmi-14-guardrail-pii-filters"
+      Description: "Checks if Bedrock guardrails have proper sensitive information policy configuration at the account level. - Control ID: FMI-14"
+      MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+      InputParameters: !Sub |
+        {
+          "GuardrailName": "${GuardrailName}",
+          "PIIEntities": "${PIIEntities}",
+          "PIIAction": "${PIIAction}",
+          "InputAction": "${InputAction}",
+          "OutputAction": "${OutputAction}",
+          "RegexPattern1": "${RegexPattern1}",
+          "RegexPattern2": "${RegexPattern2}",
+          "RegexPattern3": "${RegexPattern3}",
+          "RegexPattern4": "${RegexPattern4}",
+          "RegexPattern5": "${RegexPattern5}",
+          "RequiredTags": "${RequiredTags}"
+        }
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ScheduledNotification
+            MaximumExecutionFrequency: !Ref ConfigRuleFrequency
+        SourceIdentifier: !GetAtt LambdaFunction.Arn
+
+  # =========================================================================
+  # Remediation Configuration
+  # =========================================================================
+  GuardrailSensitiveInfoRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref GuardrailSensitiveInfoCheck
+      TargetId: !Ref RemediationDocument
+      TargetType: SSM_DOCUMENT
+      Automatic: !Ref EnableAutoRemediation
+      MaximumAutomaticAttempts: !Ref RemediationRetryAttempts
+      RetryAttemptSeconds: !Ref RemediationRetrySeconds
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt AutomationRole.Arn
+        ResourceId:
+          ResourceValue:
+            Value: RESOURCE_ID
+        GuardrailName:
+          StaticValue:
+            Values:
+              - !Ref GuardrailName
+        PIIEntities:
+          StaticValue:
+            Values:
+              - !Ref PIIEntities
+        PIIAction:
+          StaticValue:
+            Values:
+              - !Ref PIIAction
+        InputAction:
+          StaticValue:
+            Values:
+              - !Ref InputAction
+        OutputAction:
+          StaticValue:
+            Values:
+              - !Ref OutputAction
+        RegexPattern1:
+          StaticValue:
+            Values:
+              - !Ref RegexPattern1
+        RegexPattern2:
+          StaticValue:
+            Values:
+              - !Ref RegexPattern2
+        RegexPattern3:
+          StaticValue:
+            Values:
+              - !Ref RegexPattern3
+        RegexPattern4:
+          StaticValue:
+            Values:
+              - !Ref RegexPattern4
+        RegexPattern5:
+          StaticValue:
+            Values:
+              - !Ref RegexPattern5
+        RequiredTags:
+          StaticValue:
+            Values:
+              - !Ref RequiredTags
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Guardrail Sensitive Information Check Lambda Function
+    Value: !GetAtt LambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  RemediationFunctionArn:
+    Description: ARN of the Bedrock Guardrail Sensitive Information Remediation Lambda Function
+    Value: !GetAtt RemediationLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationFunctionArn'
+      
+  RemediationDocumentName:
+    Description: Name of the SSM Automation Document for Guardrail Sensitive Information Remediation
+    Value: !Ref RemediationDocument
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationDocumentName'
+      
+  RemediationAutomationRoleArn:
+    Description: ARN of the Remediation Automation Role for Guardrail Sensitive Information
+    Value: !GetAtt AutomationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RemediationAutomationRoleArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Guardrail Sensitive Information
+    Value: !Ref GuardrailSensitiveInfoCheck
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'

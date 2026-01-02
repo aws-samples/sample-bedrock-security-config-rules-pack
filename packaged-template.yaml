@@ -1,0 +1,313 @@
+Parameters:
+  DeployFMI03:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI03
+    Description: Deploy FMI-03 Tag-Based Access IAM control
+  DeployFMI01:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI01
+    Description: Deploy FMI-01 IAM Least Privilege control
+  DeployFMI04:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI04
+    Description: Deploy FMI-04 Model Invocation Logging control
+  DeployFMI05:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI05
+    Description: Deploy FMI-05 Prompt Store Enabled control
+  DeployFMI06:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI06
+    Description: Deploy FMI-06 Model Logs KMS control
+  DeployFMI07:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI07
+    Description: Deploy FMI-07 Knowledge Bases KMS control
+  DeployFMI08:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI08
+    Description: Deploy FMI-08 Guardrails KMS control
+  DeployFMI09:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI09
+    Description: Deploy FMI-09 VPC Endpoint Enabled control
+  DeployFMI10:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI10
+    Description: Deploy FMI-10 VPC Endpoint Policy Restricted control
+  DeployGuardrailContentFilters:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployGuardrailContentFilters
+    Description: Deploy Guardrail Content Filters control
+  DeployGuardrailWordFilters:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployGuardrailWordFilters
+    Description: Deploy Guardrail Word Filters control
+  DeployGuardrailPIIFilters:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployGuardrailPIIFilters
+    Description: Deploy Guardrail PII Filters control
+  DeployGuardrailContextualGrounding:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployGuardrailContextualGrounding
+    Description: Deploy Guardrail Contextual Grounding control
+  DeployFMI02:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI02
+    Description: Deploy FMI-02 Guardrail IAM Condition control
+  DeployFMI17:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI17
+    Description: Deploy FMI-17 CloudTrail Data Events control
+  DeployFMI18:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI18
+    Description: Deploy FMI-18 Guardrail CloudWatch Alarms control
+  DeployFMI19:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI19
+    Description: Deploy FMI-19 Guardrail Change Monitoring control
+  DeployFMI11:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI11
+    Description: Deploy FMI-11 Guardrail Topic Filters control
+  DeployFMI12:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI12
+    Description: Deploy FMI-12 Guardrail Content Filters control
+  DeployFMI13:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI13
+    Description: Deploy FMI-13 Guardrail Word Policy control
+  DeployFMI14:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI14
+    Description: Deploy FMI-14 Guardrail Sensitive Information Policy control
+  DeployFMI15:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI15
+    Description: Deploy FMI-15 Guardrail Contextual Grounding Policy control
+  DeployFMI16:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployFMI16
+    Description: Deploy FMI-16 Guardrail Automated Reasoning Policy control
+  DeployRAG01:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployRAG01
+    Description: Deploy RAG-01 Knowledge Base Data Source Validation control
+  DeployRAG02:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/DeployRAG02
+    Description: Deploy RAG-02 Vector Database Encryption control
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: S3 bucket name for storing CloudFormation templates and Config rules
+      pack templates
+Conditions:
+  ShouldDeployFMI03:
+    Fn::Equals:
+    - Ref: DeployFMI03
+    - 'true'
+  ShouldDeployFMI01:
+    Fn::Equals:
+    - Ref: DeployFMI01
+    - 'true'
+  ShouldDeployFMI04:
+    Fn::Equals:
+    - Ref: DeployFMI04
+    - 'true'
+  ShouldDeployFMI05:
+    Fn::Equals:
+    - Ref: DeployFMI05
+    - 'true'
+  ShouldDeployFMI06:
+    Fn::Equals:
+    - Ref: DeployFMI06
+    - 'true'
+  ShouldDeployFMI07:
+    Fn::Equals:
+    - Ref: DeployFMI07
+    - 'true'
+  ShouldDeployFMI08:
+    Fn::Equals:
+    - Ref: DeployFMI08
+    - 'true'
+  ShouldDeployFMI09:
+    Fn::Equals:
+    - Ref: DeployFMI09
+    - 'true'
+  ShouldDeployFMI10:
+    Fn::Equals:
+    - Ref: DeployFMI10
+    - 'true'
+  ShouldDeployGuardrailContentFilters:
+    Fn::Equals:
+    - Ref: DeployGuardrailContentFilters
+    - 'true'
+  ShouldDeployGuardrailWordFilters:
+    Fn::Equals:
+    - Ref: DeployGuardrailWordFilters
+    - 'true'
+  ShouldDeployGuardrailPIIFilters:
+    Fn::Equals:
+    - Ref: DeployGuardrailPIIFilters
+    - 'true'
+  ShouldDeployGuardrailContextualGrounding:
+    Fn::Equals:
+    - Ref: DeployGuardrailContextualGrounding
+    - 'true'
+  ShouldDeployFMI02:
+    Fn::Equals:
+    - Ref: DeployFMI02
+    - 'true'
+  ShouldDeployFMI17:
+    Fn::Equals:
+    - Ref: DeployFMI17
+    - 'true'
+  ShouldDeployFMI18:
+    Fn::Equals:
+    - Ref: DeployFMI18
+    - 'true'
+  ShouldDeployFMI19:
+    Fn::Equals:
+    - Ref: DeployFMI19
+    - 'true'
+  ShouldDeployFMI11:
+    Fn::Equals:
+    - Ref: DeployFMI11
+    - 'true'
+  ShouldDeployFMI12:
+    Fn::Equals:
+    - Ref: DeployFMI12
+    - 'true'
+  ShouldDeployFMI13:
+    Fn::Equals:
+    - Ref: DeployFMI13
+    - 'true'
+  ShouldDeployFMI14:
+    Fn::Equals:
+    - Ref: DeployFMI14
+    - 'true'
+  ShouldDeployFMI15:
+    Fn::Equals:
+    - Ref: DeployFMI15
+    - 'true'
+  ShouldDeployFMI16:
+    Fn::Equals:
+    - Ref: DeployFMI16
+    - 'true'
+  ShouldDeployRAG01:
+    Fn::Equals:
+    - Ref: DeployRAG01
+    - 'true'
+  ShouldDeployRAG02:
+    Fn::Equals:
+    - Ref: DeployRAG02
+    - 'true'
+Resources:
+  FMI01ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI03
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/c47776ef11cc27cd4eca74817eff9d84.template
+  FMI02ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI01
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/47b973456f968617ddf6a25670e0576b.template
+  FMI04ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI04
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/95c894168ced226779f25e80d1cb804e.template
+  FMI05ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI05
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/2e07bce50d0413e1e949a381e4d6184e.template
+  FMI06ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI06
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/65799cc0f6ce3e2d2af954feed62afe3.template
+  FMI07ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI07
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/e758298dd4a717e9cce24be7069b74a0.template
+  FMI08ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI08
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/8be9e322f7c3d06fbf43f7fb342c35ca.template
+  FMI09ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI09
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/22a10895f94542acb851bf79a61a6bf6.template
+  FMI10ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI10
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/63e000cef587dcf64f12f03a9f2917c2.template
+  FMI12ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI02
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/2afb5a55c6615541b8901aad676a0e2c.template
+  FMI13ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI17
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/66dcb3c9164edba47037027e375fbc00.template
+  FMI14ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI18
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/89fcb283ab09c5b30edcade56779b8b7.template
+  FMI15ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI19
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/ac69cc6e7535f25f6aef826984e8bc99.template
+  FMI16ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI11
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/638c889cb792c7d638576ab8e85732fc.template
+  FMI17ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI12
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/5140162a805e411ec84dc1c175821c8c.template
+  FMI18ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI13
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/59f556ca1a615b8162d9116663a4afab.template
+  FMI19ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI14
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/55d06d379f0e13244f91d8a7a9bc31de.template
+  FMI20ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI15
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/f02fd0f7910a015e1e3b87c45dba0efc.template
+  FMI21ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFMI16
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/456299d62da393a72a7a3b918c29d84d.template
+  RAG01ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployRAG01
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/6639dd21220674569673c050edbeedde.template
+  RAG02ControlStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployRAG02
+    Properties:
+      TemplateURL: https://s3.us-east-1.amazonaws.com/bedrock-security-configrules-pack/controls/fadbb9f1dbd52644a5f3928fec613f63.template

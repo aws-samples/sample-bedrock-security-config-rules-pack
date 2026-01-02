@@ -1,0 +1,186 @@
+################################################################################
+# Bedrock Security Control - RAG-02 Vector Database Encryption
+#
+# This unified stack contains all resources for the RAG-02 control:
+# - Check Lambda function and IAM role
+# - Config rule (no remediation - vector database encryption is immutable)
+################################################################################
+
+Parameters:
+  # Global parameters from SSM Parameter Store
+  
+  TemplatesBucketName:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/TemplatesBucketName
+    Description: Name of the S3 bucket containing Lambda code
+    
+  LambdaCodePrefix:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/LambdaCodePrefix
+    Description: Prefix for Lambda code files in S3 bucket
+    
+  ConfigRuleFrequency:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/ConfigRuleFrequency
+    Description: Frequency at which the Config Rules will run
+    
+  # VPC Configuration parameters (optional)
+  VpcId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/VpcId
+    Description: VPC ID for Lambda functions (use 'null' to disable VPC)
+    
+  PrivateSubnetIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/PrivateSubnetIds
+    Description: List of private subnet IDs for Lambda functions (use 'null' to disable VPC)
+    
+  SecurityGroupIds:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/global/SecurityGroupIds
+    Description: List of Security Group IDs for Lambda functions (use 'null' to disable VPC)
+    
+  # Control-specific parameters
+  RequiredKmsKeyId:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/rag-02/RequiredKmsKeyId
+    Description: Required KMS key ID for vector database encryption. Use 'null' to allow any customer-managed key.
+    
+  AllowAWSManagedKeys:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /bedrock-configrules/rag-02/AllowAWSManagedKeys
+    Description: Allow AWS managed keys for vector database encryption
+
+Conditions:
+  UseVPC: !Not [!Equals [!Ref VpcId, "null"]]
+
+Resources:
+  # =========================================================================
+  # Check Lambda Function and Role
+  # =========================================================================
+  VectorDbEncryptionCheckRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "VectorDbEncryptionCheckRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !If 
+          - UseVPC
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+          - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+      Policies:
+        - PolicyName: !Sub "VectorDbEncryptionCheckPolicy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:GetKnowledgeBase
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - aoss:BatchGetCollection
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - rds:DescribeDBClusters
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3vectors:GetVectorBucket
+                Resource: '*'
+
+  VectorDbEncryptionCheckFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "rag02-VectorDbEncryptedCheck"
+      Handler: lambda-function.lambda_handler
+      Role: !GetAtt VectorDbEncryptionCheckRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      ReservedConcurrentExecutions: 10
+      Code:
+        S3Bucket: !Ref TemplatesBucketName
+        S3Key: !Sub "${LambdaCodePrefix}/rag-02-vector-db-encrypted-check.zip"
+      VpcConfig: !If
+        - UseVPC
+        - SecurityGroupIds: !Ref SecurityGroupIds
+          SubnetIds: !Ref PrivateSubnetIds
+        - !Ref AWS::NoValue
+
+
+
+  # =========================================================================
+  # Lambda Permission for Config Rule
+  # =========================================================================
+  RAG02Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref VectorDbEncryptionCheckFunction
+      Action: lambda:InvokeFunction
+      Principal: config.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+
+  # =========================================================================
+  # Config Rule
+  # =========================================================================
+  RAG02Check:
+    Type: AWS::Config::ConfigRule
+    DependsOn: RAG02Permission
+    Properties:
+      ConfigRuleName: !Sub "rag-02-vector-db-encrypted"
+      Description: "Checks if Bedrock knowledge base vector databases use customer-managed KMS keys for encryption - Control ID: RAG-02"
+      Scope:
+        ComplianceResourceTypes: 
+          - "AWS::Bedrock::KnowledgeBase"
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ConfigurationItemChangeNotification
+          - EventSource: aws.config
+            MessageType: OversizedConfigurationItemChangeNotification
+        SourceIdentifier: !GetAtt VectorDbEncryptionCheckFunction.Arn
+      InputParameters: !Sub |
+        {
+          "RequiredKmsKeyId": "${RequiredKmsKeyId}",
+          "AllowAWSManagedKeys": "${AllowAWSManagedKeys}"
+        }
+
+  # =========================================================================
+  # Note: No remediation configuration
+  # Vector database encryption is immutable and requires manual recreation
+  # =========================================================================
+
+Outputs:
+  CheckFunctionArn:
+    Description: ARN of the Bedrock Vector Database Encryption Check Lambda Function
+    Value: !GetAtt VectorDbEncryptionCheckFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-CheckFunctionArn'
+      
+  ConfigRuleName:
+    Description: Name of the Config Rule for Vector Database Encryption
+    Value: !Ref RAG02Check
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRuleName'
+      
+  ControlType:
+    Description: Type of control (check-only, no remediation available)
+    Value: "CHECK_ONLY"
+    Export:
+      Name: !Sub '${AWS::StackName}-ControlType'

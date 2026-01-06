@@ -517,24 +517,3 @@ def add_resource_restrictions(statement: Dict[str, Any]) -> Dict[str, Any]:
     # This is a placeholder for future enhancements when Bedrock supports resource-level permissions
     return statement
 
-if __name__ == "__main__":
-    # Test event for local testing
-    test_event = {
-        'entityType': 'role',
-        'entityName': 'TestBedrockRole',
-        'remediationActions': 'replace_wildcards,add_mfa,remove_prohibited',
-        'allowedActions': 'bedrock:InvokeModel,bedrock:GetFoundationModel,bedrock:ListFoundationModels',
-        'prohibitedActions': 'bedrock:DeleteCustomModel'
-    }
-    
-    # Mock context
-    class MockContext:
-        def __init__(self):
-            self.function_name = "test-function"
-            self.invoked_function_arn = "arn:aws:lambda:us-east-1:123456789012:function:test-function"
-        
-        def get_remaining_time_in_millis(self):
-            return 30000
-    
-    result = handler(test_event, MockContext())
-    print(json.dumps(result, indent=2))

@@ -250,7 +250,7 @@ def handler(event, context):
         # Try to get account_id safely
         try:
             account_id = event.get('accountId') or context.invoked_function_arn.split(':')[4]
-        except:
+        except (AttributeError, IndexError):
             account_id = 'unknown'
             
         return create_account_evaluation(event.get('resultToken'), account_id, 'NON_COMPLIANT',

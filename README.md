@@ -57,32 +57,32 @@ Edit `parameters/ssm-parameters.yaml` to configure:
 
 | Control | Name | Description | Auto-Remediation |
 |---------|------|-------------|------------------|
-| **FMI-01** | Bedrock Wildcard Permissions Prohibited | Identifies IAM roles with overly permissive wildcard Bedrock permissions | ✅ |
-| **FMI-02** | Guardrails Enforced | Ensures SCPs mandate guardrail usage for Bedrock model invocations | ✅ |
-| **FMI-03** | Tag-Based Access Enforced | Validates IAM policies include tag-based conditions for Bedrock access | ✅ |
-| **FMI-04** | Model Invocation Logging Enabled | Ensures Bedrock model invocation logging is configured with proper destinations | ✅ |
-| **FMI-05** | Prompt Store Enabled | Validates prompt versioning and management for governance | ⚠️ Manual |
-| **FMI-06** | Model Logs Encryption Enabled | Ensures model invocation logs use customer-managed KMS encryption | ✅ |
-| **FMI-07** | Knowledge Base Encryption Enabled | Validates knowledge base data sources use customer-managed KMS keys | ✅ |
-| **FMI-08** | Guardrail Encryption Enabled | Ensures guardrail configurations use customer-managed KMS encryption | ✅ |
-| **FMI-09** | VPC Endpoint Enabled | Validates VPC endpoints exist for private Bedrock connectivity | ✅ |
-| **FMI-10** | VPC Endpoint Policies Restricted | Ensures VPC endpoint policies follow least privilege principles | ✅ |
-| **FMI-11** | Guardrail Topic Filters Enabled | Validates guardrails have topic-based content filtering configured | ✅ |
-| **FMI-12** | Guardrail Content Filters Enabled | Ensures guardrails block harmful content types (violence, hate, etc.) | ✅ |
-| **FMI-13** | Guardrail Word Filters Enabled | Validates guardrails filter blocked words and profanity | ✅ |
-| **FMI-14** | Guardrail PII Filters Enabled | Ensures guardrails detect and filter personally identifiable information | ✅ |
-| **FMI-15** | Guardrail Contextual Grounding Enabled | Validates contextual grounding and relevance filtering in guardrails | ✅ |
-| **FMI-16** | Guardrail Automated Reasoning Enabled | Ensures automated reasoning policies are configured in guardrails | ✅ |
-| **FMI-17** | CloudTrail Data Events Enabled | Validates CloudTrail captures data events for Bedrock resources | ✅ |
-| **FMI-18** | Guardrail Alarms Configured | Sets up CloudWatch alarms for guardrail violation monitoring | ✅ |
-| **FMI-19** | Guardrail Change Monitoring Enabled | Monitors and alerts on guardrail configuration changes | ✅ |
+| **FMI-01** | [Bedrock Wildcard Permissions Prohibited](controls/fmi-01-bedrock-wildcard-permissions-prohibited/) | Identifies IAM roles with overly permissive wildcard Bedrock permissions | ✅ |
+| **FMI-02** | [Guardrails Enforced](controls/fmi-02-guardrails-enforced/) | Ensures SCPs mandate guardrail usage for Bedrock model invocations | ✅ |
+| **FMI-03** | [Tag-Based Access Enforced](controls/fmi-03-tag-based-access-enforced/) | Validates IAM policies include tag-based conditions for Bedrock access | ✅ |
+| **FMI-04** | [Model Invocation Logging Enabled](controls/fmi-04-model-invocation-logging-enabled/) | Ensures Bedrock model invocation logging is configured with proper destinations | ✅ |
+| **FMI-05** | [Prompt Store Enabled](controls/fmi-05-prompt-store-enabled/) | Validates prompt versioning and management for governance | ⚠️ Manual |
+| **FMI-06** | [Model Logs Encryption Enabled](controls/fmi-06-model-logs-encryption-enabled/) | Ensures model invocation logs use customer-managed KMS encryption | ✅ |
+| **FMI-07** | [Knowledge Base Encryption Enabled](controls/fmi-07-knowledge-base-encryption-enabled/) | Validates knowledge base data sources use customer-managed KMS keys | ✅ |
+| **FMI-08** | [Guardrail Encryption Enabled](controls/fmi-08-guardrail-encryption-enabled/) | Ensures guardrail configurations use customer-managed KMS encryption | ✅ |
+| **FMI-09** | [VPC Endpoint Enabled](controls/fmi-09-vpc-endpoint-enabled/) | Validates VPC endpoints exist for private Bedrock connectivity | ✅ |
+| **FMI-10** | [VPC Endpoint Policies Restricted](controls/fmi-10-vpc-endpoint-policies-restricted/) | Ensures VPC endpoint policies follow least privilege principles | ✅ |
+| **FMI-11** | [Guardrail Topic Filters Enabled](controls/fmi-11-guardrail-topic-filters-enabled/) | Validates guardrails have topic-based content filtering configured | ✅ |
+| **FMI-12** | [Guardrail Content Filters Enabled](controls/fmi-12-guardrail-content-filters-enabled/) | Ensures guardrails block harmful content types (violence, hate, etc.) | ✅ |
+| **FMI-13** | [Guardrail Word Filters Enabled](controls/fmi-13-guardrail-word-filters-enabled/) | Validates guardrails filter blocked words and profanity | ✅ |
+| **FMI-14** | [Guardrail PII Filters Enabled](controls/fmi-14-guardrail-pii-filters-enabled/) | Ensures guardrails detect and filter personally identifiable information | ✅ |
+| **FMI-15** | [Guardrail Contextual Grounding Enabled](controls/fmi-15-guardrail-contextual-grounding-enabled/) | Validates contextual grounding and relevance filtering in guardrails | ✅ |
+| **FMI-16** | [Guardrail Automated Reasoning Enabled](controls/fmi-16-guardrail-automated-reasoning-enabled/) | Ensures automated reasoning policies are configured in guardrails | ✅ |
+| **FMI-17** | [CloudTrail Data Events Enabled](controls/fmi-17-cloudtrail-data-events-enabled/) | Validates CloudTrail captures data events for Bedrock resources | ✅ |
+| **FMI-18** | [Guardrail Alarms Configured](controls/fmi-18-guardrail-alarms-configured/) | Sets up CloudWatch alarms for guardrail violation monitoring | ✅ |
+| **FMI-19** | [Guardrail Change Monitoring Enabled](controls/fmi-19-guardrail-change-monitoring-enabled/) | Monitors and alerts on guardrail configuration changes | ✅ |
 
 ### RAG/Knowledge Base Controls - 2 Controls
 
 | Control | Name | Description | Auto-Remediation |
 |---------|------|-------------|------------------|
-| **RAG-01** | Knowledge Base Approved Sources Only | Ensures knowledge bases only use approved and tagged data sources | ⚠️ Manual |
-| **RAG-02** | Vector Database Encryption Enabled | Validates vector databases use customer-managed KMS encryption | ✅ |
+| **RAG-01** | [Knowledge Base Approved Sources Only](controls/rag-01-knowledge-base-approved-sources-only/) | Ensures knowledge bases only use approved and tagged data sources | ⚠️ Manual |
+| **RAG-02** | [Vector Database Encryption Enabled](controls/rag-02-vector-database-encryption-enabled/) | Validates vector databases use customer-managed KMS encryption | ✅ |
 
 > **Note**: Additional controls for RAG, Agentic AI, and model customization patterns are under consideration for future releases.
 
